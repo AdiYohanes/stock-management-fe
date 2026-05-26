@@ -76,10 +76,12 @@ export default function DispatchingPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-xl md:text-2xl font-bold">Pengeluaran Barang</h1>
-        <Button className="min-h-[44px] w-full sm:w-auto" disabled>
-          <Plus className="mr-2 h-4 w-4" />
-          Buat GI Baru
-        </Button>
+        <Link href="/dashboard/dispatching/new">
+          <Button className="min-h-[44px] w-full sm:w-auto">
+            <Plus className="mr-2 h-4 w-4" />
+            Buat GI Baru
+          </Button>
+        </Link>
       </div>
 
       {/* Table */}
