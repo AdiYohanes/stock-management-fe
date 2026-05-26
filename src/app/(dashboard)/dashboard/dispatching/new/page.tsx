@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus, Loader2, Save, CheckCircle } from "lucide-react";
+import { Plus, Loader2, Save, CheckCircle, FileDown } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -22,11 +22,17 @@ import {
   mockFinalizeGI,
   type StockCheckError,
 } from "@/lib/api/mock-stock-dispatching";
+import { generateGINumber } from "@/lib/utils/generate-gi-number";
+import { MOCK_PRODUCTS_DISPATCHING } from "@/lib/constants/mock-products-dispatching";
+import type { GoodsIssue, GoodsIssueItem } from "@/lib/types/dispatching";
 
 export default function NewDispatchingPage() {
   const router = useRouter();
   const [isSaving, setIsSaving] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [giNumber, setGiNumber] = useState("");
+  const [finalizedGI, setFinalizedGI] = useState<GoodsIssue | null>(null);
   const draftLoaded = useRef(false);
 
   const { formData, lastSaved, saveDraft, clearDraft } = useGIDraftStore();
@@ -50,6 +56,11 @@ export default function NewDispatchingPage() {
 
   const { fields, append, remove } = useFieldArray({ control, name: "items" });
 
+  // Auto-generate GI number on mount
+  useEffect(() => {
+    setGiNumber(generateGINumber());
+  }, []);
+
   // Load draft on mount (once)
   useEffect(() => {
     if (!draftLoaded.current && formData) {
@@ -60,7 +71,6 @@ export default function NewDispatchingPage() {
 
   const handleSaveDraft = async () => {
     const values = getValues();
-    // Draft validation: date must be filled AND at least 1 item with product_id
     if (!values.date || !values.items.some((item) => item.product_id !== "")) {
       toast.error("Isi tanggal dan minimal 1 produk untuk menyimpan draft");
       return;
@@ -73,7 +83,7 @@ export default function NewDispatchingPage() {
   };
 
   const handleFinalize = async () => {
-    // Step 1: Trigger form validation (all fields)
+    // Step 1: Trigger form validation
     const isValid = await trigger();
     if (!isValid) {
       toast.error("Lengkapi semua field yang wajib diisi");
@@ -82,7 +92,7 @@ export default function NewDispatchingPage() {
 
     const values = getValues();
 
-    // Step 2: Strict finalize validation with Zod (stricter than draft)
+    // Step 2: Strict finalize validation with Zod
     const parseResult = finalizeGISchema.safeParse(values);
     if (!parseResult.success) {
       const firstError = parseResult.error.errors[0];
@@ -90,7 +100,7 @@ export default function NewDispatchingPage() {
       return;
     }
 
-    // Step 3: Pre-check stock availability (synchronous check before async call)
+    // Step 3: Pre-check stock availability
     const stockErrors = checkAvailableStockGI(
       values.items.map((item) => ({
         product_id: item.product_id,
@@ -107,20 +117,46 @@ export default function NewDispatchingPage() {
       return;
     }
 
-    // Step 4: Finalize (async with loading state)
+    // Step 4: Finalize
     setIsFinalizing(true);
 
     try {
       const result = await mockFinalizeGI(parseResult.data);
 
-      // Step 5: Clear draft from store/localStorage
+      // Build finalized GI data for PDF
+      const finalizedData: GoodsIssue = {
+        id: crypto.randomUUID(),
+        gi_number: giNumber || result.gi_number,
+        date: values.date,
+        destination: values.destination ?? "",
+        status: "COMPLETED",
+        items: values.items.map((item, idx): GoodsIssueItem => {
+          const product = MOCK_PRODUCTS_DISPATCHING.find(
+            (p) => p.id === item.product_id,
+          );
+          return {
+            id: `gii-new-${idx}`,
+            product_id: item.product_id,
+            product_name: product?.name ?? "Unknown",
+            sku: product?.sku ?? "-",
+            qty: item.qty,
+            unit_name: product?.unit_name ?? "-",
+            notes: item.notes ?? null,
+          };
+        }),
+        created_by: "Staff",
+        created_at: new Date().toISOString(),
+      };
+
+      setFinalizedGI(finalizedData);
+
+      // Clear draft from store
       clearDraft();
 
-      // Step 6: Show success toast and redirect
-      toast.success(`Pengeluaran ${result.gi_number} berhasil diselesaikan`);
-      router.push("/dashboard/dispatching");
+      toast.success(
+        `Pengeluaran ${giNumber || result.gi_number} berhasil diselesaikan`,
+      );
     } catch (error: unknown) {
-      // Handle stock errors returned from mockFinalizeGI
       if (Array.isArray(error)) {
         for (const err of error as StockCheckError[]) {
           toast.error(
@@ -135,6 +171,34 @@ export default function NewDispatchingPage() {
     }
   };
 
+  const handleDownloadPdf = useCallback(async () => {
+    if (!finalizedGI) return;
+
+    setIsGeneratingPdf(true);
+    try {
+      // Dynamic import to avoid SSR issues
+      const { pdf } = await import("@react-pdf/renderer");
+      const { GIPdfSlip } =
+        await import("@/components/features/dispatching/gi-pdf-slip");
+
+      const blob = await pdf(<GIPdfSlip data={finalizedGI} />).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${finalizedGI.gi_number}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success("PDF berhasil diunduh");
+    } catch {
+      toast.error("Gagal membuat PDF. Silakan coba lagi.");
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  }, [finalizedGI]);
+
   const handleCancel = () => {
     clearDraft();
     reset({
@@ -144,6 +208,51 @@ export default function NewDispatchingPage() {
     });
     router.push("/dashboard/dispatching");
   };
+
+  // If finalized, show success state with PDF download
+  if (finalizedGI) {
+    return (
+      <div className="flex flex-col items-center justify-center space-y-6 max-w-lg mx-auto px-4 py-12 text-center">
+        <div className="rounded-full bg-emerald-100 p-4">
+          <CheckCircle className="h-10 w-10 text-emerald-600" />
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-xl md:text-2xl font-bold">
+            Pengeluaran Berhasil
+          </h1>
+          <p className="text-muted-foreground">
+            Transaksi{" "}
+            <span className="font-mono font-semibold">
+              {finalizedGI.gi_number}
+            </span>{" "}
+            telah diselesaikan.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <Button
+            onClick={handleDownloadPdf}
+            disabled={isGeneratingPdf}
+            className="min-h-[44px] w-full sm:w-auto transition-all duration-150 active:scale-95"
+          >
+            {isGeneratingPdf ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileDown className="mr-2 h-4 w-4" />
+            )}
+            Cetak Bukti
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/dashboard/dispatching")}
+            className="min-h-[44px] w-full sm:w-auto transition-all duration-150 active:scale-95"
+          >
+            Kembali ke Daftar
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto px-4 md:px-0">
@@ -173,15 +282,15 @@ export default function NewDispatchingPage() {
       <form className="space-y-6">
         {/* Header Fields */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* GI Number (read-only placeholder) */}
+          {/* GI Number (auto-generated, read-only) */}
           <div className="space-y-1.5">
             <Label htmlFor="gi_number">Nomor GI</Label>
             <Input
               id="gi_number"
-              value="Auto-generated saat submit"
+              value={giNumber || "Generating..."}
               disabled
               readOnly
-              className="font-mono"
+              className="font-mono bg-muted/50"
             />
           </div>
 
@@ -194,6 +303,7 @@ export default function NewDispatchingPage() {
               id="date"
               type="date"
               aria-describedby={errors.date ? "date-error" : undefined}
+              className="min-h-[44px] md:min-h-0"
               {...register("date")}
             />
             {errors.date && (
@@ -211,6 +321,7 @@ export default function NewDispatchingPage() {
             id="destination"
             placeholder="Contoh: Divisi Marketing"
             maxLength={200}
+            className="min-h-[44px] md:min-h-0"
             {...register("destination")}
           />
           {errors.destination && (
@@ -228,7 +339,7 @@ export default function NewDispatchingPage() {
               type="button"
               variant="outline"
               size="sm"
-              className="min-h-[44px] md:min-h-0"
+              className="min-h-[44px] md:min-h-0 transition-all duration-150 hover:bg-accent active:scale-95"
               onClick={() => append({ product_id: "", qty: 0, notes: "" })}
             >
               <Plus className="mr-1.5 h-4 w-4" />
@@ -263,7 +374,7 @@ export default function NewDispatchingPage() {
             variant="outline"
             onClick={handleSaveDraft}
             disabled={isSaving || isFinalizing}
-            className="min-h-[44px] w-full sm:w-auto"
+            className="min-h-[44px] w-full sm:w-auto transition-all duration-150 hover:bg-accent active:scale-95"
           >
             {isSaving ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -276,7 +387,7 @@ export default function NewDispatchingPage() {
             type="button"
             onClick={handleFinalize}
             disabled={isFinalizing || isSaving}
-            className="min-h-[44px] w-full sm:w-auto"
+            className="min-h-[44px] w-full sm:w-auto transition-all duration-150 active:scale-95"
           >
             {isFinalizing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -290,7 +401,7 @@ export default function NewDispatchingPage() {
             variant="ghost"
             onClick={handleCancel}
             disabled={isFinalizing}
-            className="min-h-[44px] w-full sm:w-auto"
+            className="min-h-[44px] w-full sm:w-auto transition-all duration-150 hover:bg-accent active:scale-95"
           >
             Batal
           </Button>

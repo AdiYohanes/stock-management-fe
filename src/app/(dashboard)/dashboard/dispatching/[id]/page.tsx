@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import { useState, useCallback } from "react";
 import Link from "next/link";
 import {
   useReactTable,
@@ -8,7 +9,8 @@ import {
   flexRender,
   createColumnHelper,
 } from "@tanstack/react-table";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileDown, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { MOCK_GOODS_ISSUES } from "@/lib/constants/mock-dispatching";
 import { formatDate, formatNumber } from "@/lib/formatters";
@@ -32,13 +34,41 @@ const columns = [
 
 export default function DispatchingDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const gi = MOCK_GOODS_ISSUES.find((g) => g.id === id);
+
+  const handleDownloadPdf = useCallback(async () => {
+    if (!gi) return;
+
+    setIsGeneratingPdf(true);
+    try {
+      const { pdf } = await import("@react-pdf/renderer");
+      const { GIPdfSlip } =
+        await import("@/components/features/dispatching/gi-pdf-slip");
+
+      const blob = await pdf(<GIPdfSlip data={gi} />).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${gi.gi_number}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success("PDF berhasil diunduh");
+    } catch {
+      toast.error("Gagal membuat PDF. Silakan coba lagi.");
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  }, [gi]);
 
   if (!gi) {
     return (
       <div className="space-y-4">
         <Link href="/dashboard/dispatching">
-          <Button variant="ghost" size="sm">
+          <Button variant="ghost" size="sm" className="min-h-[44px] md:min-h-0">
             <ArrowLeft className="mr-1.5 h-4 w-4" />
             Kembali
           </Button>
@@ -56,38 +86,70 @@ export default function DispatchingDetailPage() {
     <div className="space-y-6">
       {/* Back navigation */}
       <Link href="/dashboard/dispatching">
-        <Button variant="ghost" size="sm">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="min-h-[44px] md:min-h-0 transition-all duration-150 hover:bg-accent active:scale-95"
+        >
           <ArrowLeft className="mr-1.5 h-4 w-4" />
           Kembali ke Daftar
         </Button>
       </Link>
 
       {/* Header info card */}
-      <div className="rounded-md border p-6 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <h1 className="text-2xl font-bold">{gi.gi_number}</h1>
-          <StatusBadge status={gi.status} />
+      <div className="rounded-md border p-4 md:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <h1 className="text-xl md:text-2xl font-bold font-mono">
+            {gi.gi_number}
+          </h1>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+            <StatusBadge status={gi.status} />
+            {gi.status === "COMPLETED" && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleDownloadPdf}
+                disabled={isGeneratingPdf}
+                className="min-h-[44px] md:min-h-0 w-full sm:w-auto transition-all duration-150 active:scale-95"
+              >
+                {isGeneratingPdf ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileDown className="mr-1.5 h-4 w-4" />
+                )}
+                Cetak Bukti
+              </Button>
+            )}
+          </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 text-sm">
           <div>
-            <span className="text-muted-foreground">Tanggal:</span>{" "}
-            {formatDate(gi.date)}
+            <span className="text-muted-foreground block text-xs mb-0.5">
+              Tanggal
+            </span>
+            <span className="font-medium">{formatDate(gi.date)}</span>
           </div>
           <div>
-            <span className="text-muted-foreground">Tujuan:</span>{" "}
-            {gi.destination}
+            <span className="text-muted-foreground block text-xs mb-0.5">
+              Tujuan
+            </span>
+            <span className="font-medium">{gi.destination || "-"}</span>
           </div>
           <div>
-            <span className="text-muted-foreground">Total Item:</span>{" "}
-            {formatNumber(gi.items.length)}
+            <span className="text-muted-foreground block text-xs mb-0.5">
+              Total Item
+            </span>
+            <span className="font-medium">{formatNumber(gi.items.length)}</span>
           </div>
           <div>
-            <span className="text-muted-foreground">Total Qty:</span>{" "}
-            {formatNumber(totalQty)}
+            <span className="text-muted-foreground block text-xs mb-0.5">
+              Total Qty
+            </span>
+            <span className="font-medium">{formatNumber(totalQty)}</span>
           </div>
         </div>
-        <div className="text-sm text-muted-foreground">
-          Dibuat oleh: {gi.created_by}
+        <div className="text-sm text-muted-foreground pt-2 border-t">
+          Dibuat oleh: <span className="font-medium">{gi.created_by}</span>
         </div>
       </div>
 
@@ -135,7 +197,7 @@ function ItemTable({ items }: { items: GoodsIssueItem[] }) {
           {table.getRowModel().rows.map((row) => (
             <tr
               key={row.id}
-              className="border-b transition-colors hover:bg-muted/50"
+              className="border-b transition-colors duration-150 hover:bg-muted/50"
             >
               {row.getVisibleCells().map((cell) => (
                 <td key={cell.id} className="px-4 py-3 whitespace-nowrap">
@@ -159,7 +221,7 @@ function StatusBadge({ status }: { status: GoodsIssue["status"] }) {
 
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${cls}`}
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${cls}`}
     >
       {status === "COMPLETED" ? "Selesai" : "Draft"}
     </span>

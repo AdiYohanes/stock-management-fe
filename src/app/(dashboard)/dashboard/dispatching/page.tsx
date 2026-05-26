@@ -10,6 +10,8 @@ import {
 } from "@tanstack/react-table";
 import { Plus, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GILoadingSkeleton } from "@/components/shared/gi-loading-skeleton";
+import { GIEmptyState } from "@/components/shared/gi-empty-state";
 import { MOCK_GOODS_ISSUES } from "@/lib/constants/mock-dispatching";
 import { formatDate, formatNumber } from "@/lib/formatters";
 import type { GoodsIssue } from "@/lib/types/dispatching";
@@ -17,12 +19,24 @@ import type { GoodsIssue } from "@/lib/types/dispatching";
 const col = createColumnHelper<GoodsIssue>();
 
 const columns = [
-  col.accessor("gi_number", { header: "Nomor GI" }),
+  col.accessor("gi_number", {
+    header: "Nomor GI",
+    cell: (info) => (
+      <span className="font-mono text-xs">{info.getValue()}</span>
+    ),
+  }),
   col.accessor("date", {
     header: "Tanggal",
     cell: (info) => formatDate(info.getValue()),
   }),
-  col.accessor("destination", { header: "Tujuan" }),
+  col.accessor("destination", {
+    header: "Tujuan",
+    cell: (info) => (
+      <span className="max-w-[200px] truncate block">
+        {info.getValue() || "-"}
+      </span>
+    ),
+  }),
   col.accessor("status", {
     header: "Status",
     cell: (info) => <StatusBadge status={info.getValue()} />,
@@ -43,9 +57,14 @@ const columns = [
     header: "Aksi",
     cell: ({ row }) => (
       <Link href={`/dashboard/dispatching/${row.original.id}`}>
-        <Button variant="ghost" size="sm" className="min-h-[44px] md:min-h-0">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="min-h-[44px] md:min-h-0 transition-all duration-150 hover:bg-accent active:scale-95"
+        >
           <Eye className="mr-1.5 h-4 w-4" />
-          Lihat Detail
+          <span className="hidden sm:inline">Lihat Detail</span>
+          <span className="sm:hidden">Detail</span>
         </Button>
       </Link>
     ),
@@ -77,18 +96,18 @@ export default function DispatchingPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-xl md:text-2xl font-bold">Pengeluaran Barang</h1>
         <Link href="/dashboard/dispatching/new">
-          <Button className="min-h-[44px] w-full sm:w-auto">
+          <Button className="min-h-[44px] w-full sm:w-auto transition-all duration-150 active:scale-95">
             <Plus className="mr-2 h-4 w-4" />
             Buat GI Baru
           </Button>
         </Link>
       </div>
 
-      {/* Table */}
+      {/* Content */}
       {isLoading ? (
-        <LoadingSkeleton />
+        <GILoadingSkeleton />
       ) : data.length === 0 ? (
-        <EmptyState />
+        <GIEmptyState />
       ) : (
         <div className="overflow-x-auto rounded-md border border-border">
           <table className="w-full text-sm">
@@ -116,7 +135,7 @@ export default function DispatchingPage() {
               {table.getRowModel().rows.map((row) => (
                 <tr
                   key={row.id}
-                  className="border-b transition-colors hover:bg-muted/50"
+                  className="border-b transition-colors duration-150 hover:bg-muted/50"
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td key={cell.id} className="px-4 py-3 whitespace-nowrap">
@@ -145,31 +164,9 @@ function StatusBadge({ status }: { status: GoodsIssue["status"] }) {
 
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${cls}`}
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${cls}`}
     >
       {status === "COMPLETED" ? "Selesai" : "Draft"}
     </span>
-  );
-}
-
-/** Loading skeleton placeholder */
-function LoadingSkeleton() {
-  return (
-    <div className="space-y-3">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="h-12 animate-pulse rounded-md bg-muted" />
-      ))}
-    </div>
-  );
-}
-
-/** Empty state placeholder (to be expanded in Task 2) */
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-md border border-dashed p-12 text-center">
-      <p className="text-muted-foreground">
-        Belum ada data pengeluaran barang.
-      </p>
-    </div>
   );
 }
