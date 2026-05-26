@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   useReactTable,
@@ -9,6 +10,8 @@ import {
 } from "@tanstack/react-table";
 import { Plus, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GRLoadingSkeleton } from "@/components/shared/gr-loading-skeleton";
+import { GREmptyState } from "@/components/shared/gr-empty-state";
 import { MOCK_GOODS_RECEIPTS } from "@/lib/constants/mock-receiving";
 import type { GoodsReceipt } from "@/lib/types/receiving";
 
@@ -37,7 +40,7 @@ const columns = [
     header: "Aksi",
     cell: ({ row }) => (
       <Link href={`/dashboard/receiving/${row.original.id}`}>
-        <Button variant="ghost" size="sm">
+        <Button variant="ghost" size="sm" className="min-h-[44px] md:min-h-0">
           <Eye className="mr-1.5 h-4 w-4" />
           Lihat Detail
         </Button>
@@ -47,50 +50,68 @@ const columns = [
 ];
 
 export default function ReceivingPage() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [data, setData] = useState<GoodsReceipt[]>([]);
+
+  // Simulate initial fetch delay
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setData(MOCK_GOODS_RECEIPTS);
+      setIsLoading(false);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, []);
+
   const table = useReactTable({
-    data: MOCK_GOODS_RECEIPTS,
+    data,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Penerimaan Barang</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 className="text-xl md:text-2xl font-bold">Penerimaan Barang</h1>
         <Link href="/dashboard/receiving/new">
-          <Button>
+          <Button className="min-h-[44px] w-full sm:w-auto">
             <Plus className="mr-2 h-4 w-4" />
             Buat GR Baru
           </Button>
         </Link>
       </div>
 
-      <div className="overflow-x-auto rounded-md border">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-muted/50">
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id}>
-                {hg.headers.map((header) => (
-                  <th key={header.id} scope="col" className="px-4 py-3 text-left font-medium text-muted-foreground">
-                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="border-b transition-colors hover:bg-muted/50">
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-3">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {isLoading ? (
+        <GRLoadingSkeleton />
+      ) : data.length === 0 ? (
+        <GREmptyState />
+      ) : (
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full text-sm">
+            <thead className="border-b bg-muted/50">
+              {table.getHeaderGroups().map((hg) => (
+                <tr key={hg.id}>
+                  {hg.headers.map((header) => (
+                    <th key={header.id} scope="col" className="px-4 py-3 text-left font-medium text-muted-foreground whitespace-nowrap">
+                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => (
+                <tr key={row.id} className="border-b transition-colors hover:bg-muted/50">
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="px-4 py-3 whitespace-nowrap">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
