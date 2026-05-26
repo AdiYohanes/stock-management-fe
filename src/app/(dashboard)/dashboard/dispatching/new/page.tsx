@@ -13,13 +13,20 @@ import { Label } from "@/components/ui/label";
 import { GIItemRow } from "@/components/features/dispatching/gi-item-row";
 import {
   createGISchema,
+  finalizeGISchema,
   type CreateGIValues,
 } from "@/lib/validators/dispatching";
 import { useGIDraftStore } from "@/stores/gi-draft-store";
+import {
+  checkAvailableStockGI,
+  mockFinalizeGI,
+  type StockCheckError,
+} from "@/lib/api/mock-stock-dispatching";
 
 export default function NewDispatchingPage() {
   const router = useRouter();
   const [isSaving, setIsSaving] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
   const draftLoaded = useRef(false);
 
   const { formData, lastSaved, saveDraft, clearDraft } = useGIDraftStore();
@@ -29,6 +36,7 @@ export default function NewDispatchingPage() {
     control,
     getValues,
     reset,
+    trigger,
     formState: { errors },
   } = useForm<CreateGIValues>({
     resolver: zodResolver(createGISchema),
@@ -62,6 +70,69 @@ export default function NewDispatchingPage() {
     saveDraft(values);
     setIsSaving(false);
     toast.success("Draft tersimpan");
+  };
+
+  const handleFinalize = async () => {
+    // Step 1: Trigger form validation (all fields)
+    const isValid = await trigger();
+    if (!isValid) {
+      toast.error("Lengkapi semua field yang wajib diisi");
+      return;
+    }
+
+    const values = getValues();
+
+    // Step 2: Strict finalize validation with Zod (stricter than draft)
+    const parseResult = finalizeGISchema.safeParse(values);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.errors[0];
+      toast.error(firstError?.message ?? "Validasi gagal");
+      return;
+    }
+
+    // Step 3: Pre-check stock availability (synchronous check before async call)
+    const stockErrors = checkAvailableStockGI(
+      values.items.map((item) => ({
+        product_id: item.product_id,
+        qty: item.qty,
+      })),
+    );
+
+    if (stockErrors.length > 0) {
+      for (const err of stockErrors) {
+        toast.error(
+          `Stok ${err.product_name} tidak mencukupi. Tersedia: ${err.available}`,
+        );
+      }
+      return;
+    }
+
+    // Step 4: Finalize (async with loading state)
+    setIsFinalizing(true);
+
+    try {
+      const result = await mockFinalizeGI(parseResult.data);
+
+      // Step 5: Clear draft from store/localStorage
+      clearDraft();
+
+      // Step 6: Show success toast and redirect
+      toast.success(`Pengeluaran ${result.gi_number} berhasil diselesaikan`);
+      router.push("/dashboard/dispatching");
+    } catch (error: unknown) {
+      // Handle stock errors returned from mockFinalizeGI
+      if (Array.isArray(error)) {
+        for (const err of error as StockCheckError[]) {
+          toast.error(
+            `Stok ${err.product_name} tidak mencukupi. Tersedia: ${err.available}`,
+          );
+        }
+      } else {
+        toast.error("Gagal menyelesaikan pengeluaran. Silakan coba lagi.");
+      }
+    } finally {
+      setIsFinalizing(false);
+    }
   };
 
   const handleCancel = () => {
@@ -191,7 +262,7 @@ export default function NewDispatchingPage() {
             type="button"
             variant="outline"
             onClick={handleSaveDraft}
-            disabled={isSaving}
+            disabled={isSaving || isFinalizing}
             className="min-h-[44px] w-full sm:w-auto"
           >
             {isSaving ? (
@@ -203,17 +274,22 @@ export default function NewDispatchingPage() {
           </Button>
           <Button
             type="button"
-            disabled
+            onClick={handleFinalize}
+            disabled={isFinalizing || isSaving}
             className="min-h-[44px] w-full sm:w-auto"
-            onClick={() => toast.info("Fitur finalize belum tersedia")}
           >
-            <CheckCircle className="mr-2 h-4 w-4" />
+            {isFinalizing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle className="mr-2 h-4 w-4" />
+            )}
             Simpan &amp; Selesaikan
           </Button>
           <Button
             type="button"
             variant="ghost"
             onClick={handleCancel}
+            disabled={isFinalizing}
             className="min-h-[44px] w-full sm:w-auto"
           >
             Batal
