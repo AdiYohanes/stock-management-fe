@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import {
   useReactTable,
@@ -15,6 +15,8 @@ import { formatNumber } from "@/lib/formatters";
 import type { StockAdjustment, AdjustmentStatus } from "@/lib/types/adjustment";
 import { ADJUSTMENT_REASON_LABELS } from "@/lib/types/adjustment";
 import { useAdjustmentStore } from "@/stores/adjustment-store";
+import { AdjLoadingSkeleton } from "@/components/shared/adj-loading-skeleton";
+import { AdjEmptyState } from "@/components/shared/adj-empty-state";
 
 /** Format ISO date string to Indonesian locale (e.g. "22 Mei 2026") */
 function formatDateID(isoDate: string): string {
@@ -30,10 +32,19 @@ function formatDateID(isoDate: string): string {
 const col = createColumnHelper<StockAdjustment>();
 
 const columns = [
-  col.accessor("adj_number", { header: "Nomor ADJ" }),
+  col.accessor("adj_number", {
+    header: "Nomor ADJ",
+    cell: (info) => (
+      <span className="whitespace-nowrap font-mono text-xs">
+        {info.getValue()}
+      </span>
+    ),
+  }),
   col.accessor("date", {
     header: "Tanggal",
-    cell: (info) => formatDateID(info.getValue()),
+    cell: (info) => (
+      <span className="whitespace-nowrap">{formatDateID(info.getValue())}</span>
+    ),
   }),
   col.accessor("product_name", { header: "Produk" }),
   col.accessor("reason", {
@@ -42,11 +53,15 @@ const columns = [
   }),
   col.accessor("qty_before", {
     header: "Qty Sebelum",
-    cell: (info) => formatNumber(info.getValue()),
+    cell: (info) => (
+      <span className="tabular-nums">{formatNumber(info.getValue())}</span>
+    ),
   }),
   col.accessor("qty_after", {
     header: "Qty Sesudah",
-    cell: (info) => formatNumber(info.getValue()),
+    cell: (info) => (
+      <span className="tabular-nums">{formatNumber(info.getValue())}</span>
+    ),
   }),
   col.accessor("status", {
     header: "Status",
@@ -60,9 +75,13 @@ const columns = [
       return (
         <div className="flex items-center gap-1">
           <Link href={`/dashboard/adjustments/${row.original.id}`}>
-            <Button variant="ghost" size="sm">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="min-h-[44px] min-w-[44px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
               <Eye className="mr-1.5 h-4 w-4" />
-              Lihat
+              <span className="hidden sm:inline">Lihat</span>
             </Button>
           </Link>
           {isPending && (
@@ -70,10 +89,10 @@ const columns = [
               <Button
                 variant="outline"
                 size="sm"
-                className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                className="min-h-[44px] min-w-[44px] border-amber-300 text-amber-700 hover:bg-amber-50 active:bg-amber-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <ClipboardCheck className="mr-1.5 h-4 w-4" />
-                Review
+                <span className="hidden sm:inline">Review</span>
               </Button>
             </Link>
           )}
@@ -85,6 +104,15 @@ const columns = [
 
 export default function AdjustmentsPage() {
   const { adjustments: storeAdjustments } = useAdjustmentStore();
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Simulate initial data fetch delay
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Merge store adjustments with mock data, sorted by date descending
   const allAdjustments = useMemo(() => {
@@ -103,51 +131,48 @@ export default function AdjustmentsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold">Penyesuaian Stok</h1>
         <Link href="/dashboard/adjustments/new">
-          <Button>
+          <Button className="w-full min-h-[44px] sm:w-auto focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98] transition-transform">
             <Plus className="mr-2 h-4 w-4" />
             Ajukan Penyesuaian
           </Button>
         </Link>
       </div>
 
+      {/* Loading State */}
+      {isLoading && <AdjLoadingSkeleton />}
+
+      {/* Empty State */}
+      {!isLoading && allAdjustments.length === 0 && <AdjEmptyState />}
+
       {/* Table */}
-      <div className="overflow-x-auto rounded-md border">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-muted/50">
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id}>
-                {hg.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    scope="col"
-                    className="px-4 py-3 text-left font-medium text-muted-foreground"
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
-                        )}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={columns.length}
-                  className="px-4 py-8 text-center text-muted-foreground"
-                >
-                  Belum ada data penyesuaian stok.
-                </td>
-              </tr>
-            ) : (
-              table.getRowModel().rows.map((row) => (
+      {!isLoading && allAdjustments.length > 0 && (
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full text-sm">
+            <thead className="border-b bg-muted/50">
+              {table.getHeaderGroups().map((hg) => (
+                <tr key={hg.id}>
+                  {hg.headers.map((header) => (
+                    <th
+                      key={header.id}
+                      scope="col"
+                      className="whitespace-nowrap px-4 py-3 text-left font-medium text-muted-foreground"
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => (
                 <tr
                   key={row.id}
                   className="border-b transition-colors hover:bg-muted/50"
@@ -161,11 +186,11 @@ export default function AdjustmentsPage() {
                     </td>
                   ))}
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -191,7 +216,7 @@ function StatusBadge({ status }: { status: AdjustmentStatus }) {
 
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}
+      className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}
     >
       {label}
     </span>

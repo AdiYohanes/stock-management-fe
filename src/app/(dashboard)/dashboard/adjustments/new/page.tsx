@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { Calculator, AlertCircle, Loader2 } from "lucide-react";
+import { Calculator, AlertCircle, Loader2, Hash } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -30,10 +30,8 @@ import { ADJUSTMENT_REASON_LABELS } from "@/lib/types/adjustment";
 import type { AdjustmentReason, StockAdjustment } from "@/lib/types/adjustment";
 import { formatNumber } from "@/lib/formatters";
 import { useAdjustmentStore } from "@/stores/adjustment-store";
-import {
-  generateAdjNumber,
-  generateAdjId,
-} from "@/lib/utils/adjustment-actions";
+import { generateAdjId } from "@/lib/utils/adjustment-actions";
+import { generateAutoAdjNumber } from "@/lib/utils/auto-number";
 
 /** Format diff value with sign prefix and number formatting */
 function formatDiff(diff: number): string {
@@ -61,7 +59,10 @@ const REASON_OPTIONS: { value: AdjustmentReason; label: string }[] = [
 export default function NewAdjustmentPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
-  const { addAdjustment, adjustments } = useAdjustmentStore();
+  const { addAdjustment } = useAdjustmentStore();
+
+  // Auto-generate adjustment number on mount (memo ensures stable across re-renders)
+  const autoNumber = useMemo(() => generateAutoAdjNumber(), []);
 
   const {
     register,
@@ -119,7 +120,7 @@ export default function NewAdjustmentPage() {
 
     const newAdjustment: StockAdjustment = {
       id: generateAdjId(),
-      adj_number: generateAdjNumber(adjustments.length),
+      adj_number: autoNumber,
       date: new Date().toISOString(),
       product_id: data.product_id,
       product_name: product.name,
@@ -140,19 +141,33 @@ export default function NewAdjustmentPage() {
     setIsSubmitting(false);
     toast.success(
       "Penyesuaian berhasil diajukan! Status: Menunggu Persetujuan",
+      { position: "top-right" },
     );
     router.push("/dashboard/adjustments");
   };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-2xl space-y-6 px-4 md:px-0">
       {/* Page Header */}
-      <div className="flex items-center gap-3">
-        <Calculator className="h-6 w-6 text-muted-foreground" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+        <Calculator className="h-6 w-6 shrink-0 text-muted-foreground" />
         <div>
-          <h1 className="text-2xl font-bold">Ajukan Penyesuaian Stok</h1>
+          <h1 className="text-xl font-bold sm:text-2xl">
+            Ajukan Penyesuaian Stok
+          </h1>
           <p className="text-sm text-muted-foreground">
             Isi form berikut untuk mengajukan penyesuaian stok barang.
+          </p>
+        </div>
+      </div>
+
+      {/* Auto-generated Number Badge */}
+      <div className="flex items-center gap-2 rounded-md border border-dashed bg-muted/30 px-4 py-3">
+        <Hash className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">Nomor Penyesuaian</p>
+          <p className="truncate font-mono text-sm font-semibold">
+            {autoNumber}
           </p>
         </div>
       </div>
@@ -181,7 +196,7 @@ export default function NewAdjustmentPage() {
                 <select
                   id="product_id"
                   {...register("product_id")}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   aria-describedby="product_id-error"
                   aria-invalid={!!errors.product_id}
                 >
@@ -216,6 +231,7 @@ export default function NewAdjustmentPage() {
                   disabled
                   readOnly
                   aria-label="Stok sistem saat ini"
+                  className="tabular-nums"
                 />
                 <p className="text-xs text-muted-foreground">
                   Otomatis terisi berdasarkan produk yang dipilih.
@@ -239,6 +255,7 @@ export default function NewAdjustmentPage() {
                   step={1}
                   placeholder="Masukkan jumlah stok aktual"
                   {...register("stok_aktual")}
+                  className="tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   aria-describedby="stok_aktual-error"
                   aria-invalid={!!errors.stok_aktual}
                 />
@@ -286,7 +303,7 @@ export default function NewAdjustmentPage() {
                 <select
                   id="reason"
                   {...register("reason")}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   aria-describedby="reason-error"
                   aria-invalid={!!errors.reason}
                 >
@@ -317,7 +334,7 @@ export default function NewAdjustmentPage() {
                   rows={3}
                   maxLength={500}
                   placeholder="Catatan tambahan (opsional)"
-                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   aria-describedby="notes-error notes-count"
                   aria-invalid={!!errors.notes}
                 />
@@ -343,11 +360,11 @@ export default function NewAdjustmentPage() {
             <Separator />
 
             {/* Submit Button */}
-            <div className="flex justify-end">
+            <div className="flex flex-col sm:flex-row sm:justify-end">
               <Button
                 type="submit"
                 disabled={!isValid || isSubmitting}
-                className="min-w-[180px]"
+                className="w-full min-h-[44px] sm:w-auto sm:min-w-[180px] active:scale-[0.98] transition-transform focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 {isSubmitting && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
