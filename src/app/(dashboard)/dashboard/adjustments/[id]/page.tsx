@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,13 +33,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Skeleton } from "@/components/ui/skeleton";
 import { MOCK_ADJUSTMENTS } from "@/lib/constants/mock-adjustment";
 import { formatNumber } from "@/lib/formatters";
 import type { AdjustmentStatus, StockAdjustment } from "@/lib/types/adjustment";
 import { ADJUSTMENT_REASON_LABELS } from "@/lib/types/adjustment";
 import { useAdjustmentStore } from "@/stores/adjustment-store";
 import { logMockStockUpdate } from "@/lib/utils/adjustment-actions";
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+/** Minimum debounce time (ms) to prevent double-submit */
+const SUBMIT_DEBOUNCE_MS = 300;
 
 // ─── Rejection Reason Schema ─────────────────────────────────────────────────
 
@@ -53,9 +58,11 @@ type RejectionReasonValues = z.infer<typeof rejectionReasonSchema>;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Format ISO date string to Indonesian locale with time */
-function formatDateTimeID(isoDate: string): string {
+/** Format ISO date string to Indonesian locale with time. Handles null/invalid gracefully. */
+function formatDateTimeID(isoDate: string | null | undefined): string {
+  if (!isoDate) return "—";
   const date = new Date(isoDate);
+  if (isNaN(date.getTime())) return "—";
   const dateStr = date.toLocaleDateString("id-ID", {
     day: "numeric",
     month: "long",
@@ -83,6 +90,11 @@ export default function AdjustmentDetailPage() {
   const [isRejecting, setIsRejecting] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
 
+  // Double-submit prevention refs
+  const approveLockRef = useRef(false);
+  const rejectLockRef = useRef(false);
+
+  // TODO: Replace with backend API — GET /api/v1/adjustments/:id
   // Look up in store first, then fall back to mock data
   const storeAdjustment = getAdjustmentById(id);
   const mockAdjustment = MOCK_ADJUSTMENTS.find((a) => a.id === id);
@@ -106,6 +118,8 @@ export default function AdjustmentDetailPage() {
 
   const rejectionReasonLength = watch("rejection_reason")?.length ?? 0;
 
+  // ─── Not Found Fallback ──────────────────────────────────────────────────
+
   if (!adjustment) {
     return (
       <div className="space-y-4 px-4 md:px-0">
@@ -119,9 +133,20 @@ export default function AdjustmentDetailPage() {
             Kembali
           </Button>
         </Link>
-        <p className="text-muted-foreground">
-          Data penyesuaian tidak ditemukan.
-        </p>
+        <div className="flex flex-col items-center justify-center rounded-md border border-dashed py-16 px-6 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+            <XCircle className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h3 className="mt-4 text-lg font-semibold">
+            Data penyesuaian tidak ditemukan
+          </h3>
+          <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+            Penyesuaian dengan ID tersebut tidak ada atau telah dihapus.
+          </p>
+          <Link href="/dashboard/adjustments" className="mt-6">
+            <Button className="min-h-[44px]">Kembali ke Daftar</Button>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -136,17 +161,23 @@ export default function AdjustmentDetailPage() {
   // ─── Handlers ────────────────────────────────────────────────────────────
 
   const handleApprove = async () => {
+    // Double-submit prevention
+    if (approveLockRef.current) return;
+    approveLockRef.current = true;
     setIsApproving(true);
-    // Simulate processing delay
-    await new Promise((resolve) => setTimeout(resolve, 300));
 
+    // Simulate processing delay
+    await new Promise((resolve) => setTimeout(resolve, SUBMIT_DEBOUNCE_MS));
+
+    // TODO: Replace with backend API — POST /api/v1/adjustments/:id/approve
     approveAdjustment({
       id: adjustment.id,
-      approved_by: "Supervisor Gudang", // Mock reviewer
+      approved_by: "Supervisor Gudang", // TODO: Replace with real user from auth context
     });
 
     logMockStockUpdate(adjustment);
     setIsApproving(false);
+    approveLockRef.current = false;
     toast.success("Penyesuaian berhasil disetujui!", {
       position: "top-right",
     });
@@ -154,17 +185,23 @@ export default function AdjustmentDetailPage() {
   };
 
   const handleReject = async (data: RejectionReasonValues) => {
+    // Double-submit prevention
+    if (rejectLockRef.current) return;
+    rejectLockRef.current = true;
     setIsRejecting(true);
-    // Simulate processing delay
-    await new Promise((resolve) => setTimeout(resolve, 300));
 
+    // Simulate processing delay
+    await new Promise((resolve) => setTimeout(resolve, SUBMIT_DEBOUNCE_MS));
+
+    // TODO: Replace with backend API — POST /api/v1/adjustments/:id/reject
     rejectAdjustment({
       id: adjustment.id,
-      approved_by: "Supervisor Gudang", // Mock reviewer
+      approved_by: "Supervisor Gudang", // TODO: Replace with real user from auth context
       rejection_reason: data.rejection_reason.trim(),
     });
 
     setIsRejecting(false);
+    rejectLockRef.current = false;
     setRejectDialogOpen(false);
     reset();
     toast.success("Penyesuaian berhasil ditolak.", { position: "top-right" });
@@ -189,21 +226,30 @@ export default function AdjustmentDetailPage() {
       <div className="rounded-md border p-4 sm:p-6 space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-xl font-bold font-mono sm:text-2xl">
-            {adjustment.adj_number}
+            {adjustment.adj_number ?? "—"}
           </h1>
           <StatusBadge status={adjustment.status} />
         </div>
 
         <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3 sm:gap-4">
           <InfoItem label="Tanggal" value={formatDateTimeID(adjustment.date)} />
-          <InfoItem label="Dibuat oleh" value={adjustment.created_by} />
+          <InfoItem label="Dibuat oleh" value={adjustment.created_by ?? "—"} />
           <InfoItem
             label="Produk"
-            value={`${adjustment.product_name} (${adjustment.sku})`}
+            value={
+              adjustment.product_name && adjustment.sku
+                ? `${adjustment.product_name} (${adjustment.sku})`
+                : (adjustment.product_name ?? "—")
+            }
           />
           <InfoItem
             label="Alasan"
-            value={ADJUSTMENT_REASON_LABELS[adjustment.reason]}
+            value={
+              adjustment.reason
+                ? (ADJUSTMENT_REASON_LABELS[adjustment.reason] ??
+                  adjustment.reason)
+                : "—"
+            }
           />
         </div>
       </div>
@@ -216,13 +262,17 @@ export default function AdjustmentDetailPage() {
           <div className="rounded-md bg-muted/50 p-4 text-center">
             <p className="text-sm text-muted-foreground">Qty Sebelum</p>
             <p className="text-xl font-bold tabular-nums mt-1 sm:text-2xl">
-              {formatNumber(adjustment.qty_before)}
+              {typeof adjustment.qty_before === "number"
+                ? formatNumber(adjustment.qty_before)
+                : "—"}
             </p>
           </div>
           <div className="rounded-md bg-muted/50 p-4 text-center">
             <p className="text-sm text-muted-foreground">Qty Sesudah</p>
             <p className="text-xl font-bold tabular-nums mt-1 sm:text-2xl">
-              {formatNumber(adjustment.qty_after)}
+              {typeof adjustment.qty_after === "number"
+                ? formatNumber(adjustment.qty_after)
+                : "—"}
             </p>
           </div>
           <div className="rounded-md bg-muted/50 p-4 text-center">
@@ -307,6 +357,7 @@ export default function AdjustmentDetailPage() {
             </AlertDialog>
 
             {/* Reject Button with Dialog for reason input */}
+            {/* Dialog uses Radix UI which provides built-in focus trap & Esc to close */}
             <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
               <DialogTrigger asChild>
                 <Button
@@ -322,7 +373,19 @@ export default function AdjustmentDetailPage() {
                   {isRejecting ? "Memproses..." : "Tolak"}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="mx-4 max-w-md sm:mx-auto">
+              <DialogContent
+                className="mx-4 max-w-md sm:mx-auto"
+                onOpenAutoFocus={(e) => {
+                  // Auto-focus the textarea when dialog opens for a11y
+                  const textarea = (
+                    e.currentTarget as HTMLElement
+                  ).querySelector("textarea");
+                  if (textarea) {
+                    e.preventDefault();
+                    textarea.focus();
+                  }
+                }}
+              >
                 <DialogHeader>
                   <DialogTitle>Tolak Penyesuaian</DialogTitle>
                   <DialogDescription>
@@ -357,6 +420,7 @@ export default function AdjustmentDetailPage() {
                         <p
                           id="rejection_reason-error"
                           className="text-xs text-destructive"
+                          role="alert"
                         >
                           {errors.rejection_reason.message}
                         </p>
@@ -366,6 +430,7 @@ export default function AdjustmentDetailPage() {
                       <p
                         id="rejection_reason-count"
                         className="text-xs text-muted-foreground"
+                        aria-live="polite"
                       >
                         {rejectionReasonLength}/300
                       </p>
@@ -417,15 +482,11 @@ export default function AdjustmentDetailPage() {
             />
             <InfoItem
               label="Diproses oleh"
-              value={adjustment.approved_by ?? "-"}
+              value={adjustment.approved_by ?? "—"}
             />
             <InfoItem
               label="Waktu Proses"
-              value={
-                adjustment.approved_at
-                  ? formatDateTimeID(adjustment.approved_at)
-                  : "-"
-              }
+              value={formatDateTimeID(adjustment.approved_at)}
             />
           </div>
 
@@ -456,6 +517,7 @@ function InfoItem({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** Consistent status badge — matches Inventory & Receiving module patterns */
 function StatusBadge({ status }: { status: AdjustmentStatus }) {
   const config: Record<AdjustmentStatus, { className: string; label: string }> =
     {
@@ -473,7 +535,10 @@ function StatusBadge({ status }: { status: AdjustmentStatus }) {
       },
     };
 
-  const { className, label } = config[status];
+  const { className, label } = config[status] ?? {
+    className: "bg-gray-100 text-gray-800",
+    label: status ?? "—",
+  };
 
   return (
     <span

@@ -19,8 +19,10 @@ import { AdjLoadingSkeleton } from "@/components/shared/adj-loading-skeleton";
 import { AdjEmptyState } from "@/components/shared/adj-empty-state";
 
 /** Format ISO date string to Indonesian locale (e.g. "22 Mei 2026") */
-function formatDateID(isoDate: string): string {
+function formatDateID(isoDate: string | null | undefined): string {
+  if (!isoDate) return "—";
   const date = new Date(isoDate);
+  if (isNaN(date.getTime())) return "—";
   return date.toLocaleDateString("id-ID", {
     day: "numeric",
     month: "long",
@@ -36,7 +38,7 @@ const columns = [
     header: "Nomor ADJ",
     cell: (info) => (
       <span className="whitespace-nowrap font-mono text-xs">
-        {info.getValue()}
+        {info.getValue() ?? "—"}
       </span>
     ),
   }),
@@ -46,22 +48,38 @@ const columns = [
       <span className="whitespace-nowrap">{formatDateID(info.getValue())}</span>
     ),
   }),
-  col.accessor("product_name", { header: "Produk" }),
+  col.accessor("product_name", {
+    header: "Produk",
+    cell: (info) => info.getValue() ?? "—",
+  }),
   col.accessor("reason", {
     header: "Alasan",
-    cell: (info) => ADJUSTMENT_REASON_LABELS[info.getValue()],
+    cell: (info) => {
+      const reason = info.getValue();
+      return reason ? (ADJUSTMENT_REASON_LABELS[reason] ?? reason) : "—";
+    },
   }),
   col.accessor("qty_before", {
     header: "Qty Sebelum",
-    cell: (info) => (
-      <span className="tabular-nums">{formatNumber(info.getValue())}</span>
-    ),
+    cell: (info) => {
+      const val = info.getValue();
+      return (
+        <span className="tabular-nums">
+          {typeof val === "number" ? formatNumber(val) : "—"}
+        </span>
+      );
+    },
   }),
   col.accessor("qty_after", {
     header: "Qty Sesudah",
-    cell: (info) => (
-      <span className="tabular-nums">{formatNumber(info.getValue())}</span>
-    ),
+    cell: (info) => {
+      const val = info.getValue();
+      return (
+        <span className="tabular-nums">
+          {typeof val === "number" ? formatNumber(val) : "—"}
+        </span>
+      );
+    },
   }),
   col.accessor("status", {
     header: "Status",
@@ -106,6 +124,7 @@ export default function AdjustmentsPage() {
   const { adjustments: storeAdjustments } = useAdjustmentStore();
   const [isLoading, setIsLoading] = useState(true);
 
+  // TODO: Replace with backend API — GET /api/v1/adjustments (paginated)
   // Simulate initial data fetch delay
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -115,11 +134,14 @@ export default function AdjustmentsPage() {
   }, []);
 
   // Merge store adjustments with mock data, sorted by date descending
+  // Gracefully handle null/undefined dates in sort
   const allAdjustments = useMemo(() => {
     const merged = [...storeAdjustments, ...MOCK_ADJUSTMENTS];
-    return merged.sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-    );
+    return merged.sort((a, b) => {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      return dateB - dateA;
+    });
   }, [storeAdjustments]);
 
   const table = useReactTable({
@@ -195,6 +217,7 @@ export default function AdjustmentsPage() {
   );
 }
 
+/** Consistent status badge — matches Inventory & Receiving module patterns */
 function StatusBadge({ status }: { status: AdjustmentStatus }) {
   const config: Record<AdjustmentStatus, { className: string; label: string }> =
     {
@@ -212,7 +235,10 @@ function StatusBadge({ status }: { status: AdjustmentStatus }) {
       },
     };
 
-  const { className, label } = config[status];
+  const { className, label } = config[status] ?? {
+    className: "bg-gray-100 text-gray-800",
+    label: status ?? "—",
+  };
 
   return (
     <span

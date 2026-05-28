@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
@@ -56,8 +56,12 @@ const REASON_OPTIONS: { value: AdjustmentReason; label: string }[] = [
   { value: "LAINNYA", label: ADJUSTMENT_REASON_LABELS.LAINNYA },
 ];
 
+/** Minimum debounce time (ms) to prevent double-submit */
+const SUBMIT_DEBOUNCE_MS = 300;
+
 export default function NewAdjustmentPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
   const router = useRouter();
   const { addAdjustment } = useAdjustmentStore();
 
@@ -101,50 +105,73 @@ export default function NewAdjustmentPage() {
       ? stokAktualNum - systemStock
       : null;
 
+  // Edge case: detect when stok_aktual equals stok_sistem (no actual change)
+  const hasNoStockChange = diff === 0 && stokAktualNum !== null;
+
   // Notes character count
   const watchedNotes = useWatch({ control, name: "notes" });
   const notesLength = watchedNotes?.length ?? 0;
 
-  const onSubmit = async (data: CreateAdjustmentValues) => {
-    setIsSubmitting(true);
+  const onSubmit = useCallback(
+    async (data: CreateAdjustmentValues) => {
+      // Double-submit prevention via ref lock
+      if (submitLockRef.current) return;
+      submitLockRef.current = true;
+      setIsSubmitting(true);
 
-    // Simulate processing delay (300ms as per spec)
-    await new Promise((resolve) => setTimeout(resolve, 300));
+      // Edge case: prevent submit if stok_aktual === stok_sistem
+      const product = MOCK_PRODUCTS_STOCK.find((p) => p.id === data.product_id);
+      if (!product) {
+        setIsSubmitting(false);
+        submitLockRef.current = false;
+        toast.error("Produk tidak ditemukan", { position: "top-right" });
+        return;
+      }
 
-    const product = MOCK_PRODUCTS_STOCK.find((p) => p.id === data.product_id);
-    if (!product) {
+      if (data.stok_aktual === product.current_stock_qty) {
+        setIsSubmitting(false);
+        submitLockRef.current = false;
+        toast.warning(
+          "Tidak ada perubahan pada stok aktual. Stok aktual sama dengan stok sistem.",
+          { position: "top-right" },
+        );
+        return;
+      }
+
+      // Simulate processing delay (300ms as per spec)
+      await new Promise((resolve) => setTimeout(resolve, SUBMIT_DEBOUNCE_MS));
+
+      // TODO: Replace with backend API — POST /api/v1/adjustments
+      const newAdjustment: StockAdjustment = {
+        id: generateAdjId(),
+        adj_number: autoNumber,
+        date: new Date().toISOString(),
+        product_id: data.product_id,
+        product_name: product.name,
+        sku: product.sku,
+        reason: data.reason as AdjustmentReason,
+        qty_before: product.current_stock_qty,
+        qty_after: data.stok_aktual,
+        notes: data.notes || null,
+        status: "PENDING",
+        created_by: "Staff Gudang", // TODO: Replace with real user from auth context
+        created_at: new Date().toISOString(),
+        approved_by: null,
+        approved_at: null,
+        rejection_reason: null,
+      };
+
+      addAdjustment(newAdjustment);
       setIsSubmitting(false);
-      toast.error("Produk tidak ditemukan");
-      return;
-    }
-
-    const newAdjustment: StockAdjustment = {
-      id: generateAdjId(),
-      adj_number: autoNumber,
-      date: new Date().toISOString(),
-      product_id: data.product_id,
-      product_name: product.name,
-      sku: product.sku,
-      reason: data.reason as AdjustmentReason,
-      qty_before: product.current_stock_qty,
-      qty_after: data.stok_aktual,
-      notes: data.notes || null,
-      status: "PENDING",
-      created_by: "Staff Gudang", // Mock user
-      created_at: new Date().toISOString(),
-      approved_by: null,
-      approved_at: null,
-      rejection_reason: null,
-    };
-
-    addAdjustment(newAdjustment);
-    setIsSubmitting(false);
-    toast.success(
-      "Penyesuaian berhasil diajukan! Status: Menunggu Persetujuan",
-      { position: "top-right" },
-    );
-    router.push("/dashboard/adjustments");
-  };
+      submitLockRef.current = false;
+      toast.success(
+        "Penyesuaian berhasil diajukan! Status: Menunggu Persetujuan",
+        { position: "top-right" },
+      );
+      router.push("/dashboard/adjustments");
+    },
+    [addAdjustment, autoNumber, router],
+  );
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-4 md:px-0">
@@ -359,11 +386,25 @@ export default function NewAdjustmentPage() {
 
             <Separator />
 
+            {/* Edge case warning: no stock change */}
+            {hasNoStockChange && (
+              <div
+                className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+                role="alert"
+              >
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>
+                  Stok aktual sama dengan stok sistem. Tidak ada perubahan yang
+                  perlu diajukan.
+                </span>
+              </div>
+            )}
+
             {/* Submit Button */}
             <div className="flex flex-col sm:flex-row sm:justify-end">
               <Button
                 type="submit"
-                disabled={!isValid || isSubmitting}
+                disabled={!isValid || isSubmitting || hasNoStockChange}
                 className="w-full min-h-[44px] sm:w-auto sm:min-w-[180px] active:scale-[0.98] transition-transform focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 {isSubmitting && (
