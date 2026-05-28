@@ -9,6 +9,11 @@ import { ValuationReportContent } from "@/components/features/reports/valuation-
  * Reports page — Tab wrapper for all report types.
  * Switches between Stock, Mutation, and Valuation reports client-side.
  * URL stays at /dashboard/reports (no page reload on tab switch).
+ *
+ * Keyboard navigation (handled by Radix Tabs):
+ * - Tab: focus into TabsList
+ * - Arrow Left/Right: switch between tabs
+ * - Enter/Space: activate focused tab
  */
 export default function ReportsPage() {
   return (
@@ -21,9 +26,12 @@ export default function ReportsPage() {
         </p>
       </div>
 
-      {/* Tab Navigation */}
+      {/* Tab Navigation — Radix handles Arrow key switching & focus management */}
       <Tabs defaultValue="stock" className="w-full">
-        <TabsList className="w-full md:w-auto flex">
+        <TabsList
+          className="w-full md:w-auto flex"
+          aria-label="Pilih jenis laporan"
+        >
           <TabsTrigger value="stock" className="flex-1 md:flex-none">
             Stok Saat Ini
           </TabsTrigger>

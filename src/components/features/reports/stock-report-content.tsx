@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -10,6 +10,7 @@ import {
   type ColumnFiltersState,
 } from "@tanstack/react-table";
 import { Download } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,9 @@ const STATUS_BADGE_CLASSES: Record<StockStatusLabel, string> = {
 };
 
 const STATUS_OPTIONS: StockStatusLabel[] = ["Tersedia", "Rendah", "Habis"];
+
+/** Debounce delay (ms) to prevent double-click on export button */
+const EXPORT_DEBOUNCE_MS = 500;
 
 // --- Column Definitions ---
 
@@ -123,11 +127,23 @@ export function StockReportContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [isExporting, setIsExporting] = useState(false);
+  const exportTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Simulate initial data loading
+  // TODO: Replace with backend API endpoint — GET /api/v1/reports/stock
   useEffect(() => {
     const timer = setTimeout(() => setIsLoading(false), 300);
     return () => clearTimeout(timer);
+  }, []);
+
+  // Cleanup export debounce timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (exportTimeoutRef.current) {
+        clearTimeout(exportTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Transform mock data into report rows
@@ -161,8 +177,18 @@ export function StockReportContent() {
     getFilteredRowModel: getFilteredRowModel(),
   });
 
-  // CSV export handler
-  const handleExportCsv = () => {
+  const filteredRowCount = table.getFilteredRowModel().rows.length;
+  const isExportDisabled = isExporting || filteredRowCount === 0;
+
+  // CSV export handler with double-click prevention
+  const handleExportCsv = useCallback(() => {
+    if (filteredRowCount === 0) {
+      toast.warning("Tidak ada data untuk diexport");
+      return;
+    }
+
+    setIsExporting(true);
+
     const filteredRows = table.getFilteredRowModel().rows;
 
     const headers = [
@@ -189,12 +215,18 @@ export function StockReportContent() {
     });
 
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    // TODO: Replace with backend API endpoint — GET /api/v1/reports/stock/export
     exportCsv({
       headers,
       rows,
       filename: `laporan-stok-${today}`,
     });
-  };
+
+    // Re-enable button after debounce period
+    exportTimeoutRef.current = setTimeout(() => {
+      setIsExporting(false);
+    }, EXPORT_DEBOUNCE_MS);
+  }, [filteredRowCount, table]);
 
   return (
     <div className="space-y-6">
@@ -205,7 +237,12 @@ export function StockReportContent() {
             Ringkasan stok produk beserta nilai inventaris
           </p>
         </div>
-        <Button onClick={handleExportCsv} className="w-full sm:w-auto">
+        <Button
+          onClick={handleExportCsv}
+          disabled={isExportDisabled}
+          className="w-full sm:w-auto"
+          aria-label="Export data stok ke file CSV"
+        >
           <Download className="mr-2 h-4 w-4" />
           Export CSV
         </Button>
@@ -241,67 +278,72 @@ export function StockReportContent() {
           ))}
         </select>
 
-        <span className="text-sm text-muted-foreground">
-          {table.getFilteredRowModel().rows.length} produk ditampilkan
+        <span className="text-sm text-muted-foreground" aria-live="polite">
+          {filteredRowCount} produk ditampilkan
         </span>
       </div>
 
-      {/* Table / Loading / Empty */}
-      {isLoading ? (
-        <ReportSkeleton
-          headers={SKELETON_HEADERS}
-          rowCount={5}
-          ariaLabel="Memuat data stok saat ini"
-        />
-      ) : table.getFilteredRowModel().rows.length === 0 ? (
-        <ReportEmptyState
-          message="Tidak ada data stok untuk filter ini"
-          description="Coba ubah kategori atau status untuk menampilkan data."
-        />
-      ) : (
-        <div className="rounded-md border">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b bg-muted/50">
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <tr key={headerGroup.id}>
-                    {headerGroup.headers.map((header) => (
-                      <th
-                        key={header.id}
-                        className="px-4 py-3 text-left font-medium text-muted-foreground whitespace-nowrap"
-                      >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(
-                              header.column.columnDef.header,
-                              header.getContext(),
-                            )}
-                      </th>
-                    ))}
-                  </tr>
-                ))}
-              </thead>
-              <tbody>
-                {table.getFilteredRowModel().rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="border-b transition-colors hover:bg-muted/50"
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-4 py-3 whitespace-nowrap">
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* Table / Loading / Empty — aria-live region for screen reader updates */}
+      <div aria-live="polite" aria-atomic="true">
+        {isLoading ? (
+          <ReportSkeleton
+            headers={SKELETON_HEADERS}
+            rowCount={5}
+            ariaLabel="Memuat data stok saat ini"
+          />
+        ) : filteredRowCount === 0 ? (
+          <ReportEmptyState
+            message="Tidak ada data stok untuk filter ini"
+            description="Coba ubah kategori atau status untuk menampilkan data."
+          />
+        ) : (
+          <div className="rounded-md border">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/50">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <tr key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <th
+                          key={header.id}
+                          className="px-4 py-3 text-left font-medium text-muted-foreground whitespace-nowrap"
+                        >
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )}
+                        </th>
+                      ))}
+                    </tr>
+                  ))}
+                </thead>
+                <tbody>
+                  {table.getFilteredRowModel().rows.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="border-b transition-colors hover:bg-muted/50"
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <td
+                          key={cell.id}
+                          className="px-4 py-3 whitespace-nowrap"
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
