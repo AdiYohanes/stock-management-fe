@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useRouter } from "next/navigation";
 import { Calculator, AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -26,8 +27,13 @@ import {
   type MockProductStock,
 } from "@/lib/constants/mock-products-stock";
 import { ADJUSTMENT_REASON_LABELS } from "@/lib/types/adjustment";
-import type { AdjustmentReason } from "@/lib/types/adjustment";
+import type { AdjustmentReason, StockAdjustment } from "@/lib/types/adjustment";
 import { formatNumber } from "@/lib/formatters";
+import { useAdjustmentStore } from "@/stores/adjustment-store";
+import {
+  generateAdjNumber,
+  generateAdjId,
+} from "@/lib/utils/adjustment-actions";
 
 /** Format diff value with sign prefix and number formatting */
 function formatDiff(diff: number): string {
@@ -54,6 +60,8 @@ const REASON_OPTIONS: { value: AdjustmentReason; label: string }[] = [
 
 export default function NewAdjustmentPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const router = useRouter();
+  const { addAdjustment, adjustments } = useAdjustmentStore();
 
   const {
     register,
@@ -96,14 +104,44 @@ export default function NewAdjustmentPage() {
   const watchedNotes = useWatch({ control, name: "notes" });
   const notesLength = watchedNotes?.length ?? 0;
 
-  const onSubmit = async (_data: CreateAdjustmentValues) => {
+  const onSubmit = async (data: CreateAdjustmentValues) => {
     setIsSubmitting(true);
-    // Simulate loading delay
-    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    // Simulate processing delay (300ms as per spec)
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const product = MOCK_PRODUCTS_STOCK.find((p) => p.id === data.product_id);
+    if (!product) {
+      setIsSubmitting(false);
+      toast.error("Produk tidak ditemukan");
+      return;
+    }
+
+    const newAdjustment: StockAdjustment = {
+      id: generateAdjId(),
+      adj_number: generateAdjNumber(adjustments.length),
+      date: new Date().toISOString(),
+      product_id: data.product_id,
+      product_name: product.name,
+      sku: product.sku,
+      reason: data.reason as AdjustmentReason,
+      qty_before: product.current_stock_qty,
+      qty_after: data.stok_aktual,
+      notes: data.notes || null,
+      status: "PENDING",
+      created_by: "Staff Gudang", // Mock user
+      created_at: new Date().toISOString(),
+      approved_by: null,
+      approved_at: null,
+      rejection_reason: null,
+    };
+
+    addAdjustment(newAdjustment);
     setIsSubmitting(false);
     toast.success(
-      "Penyesuaian berhasil diajukan! (Mock submit, belum ada approval)",
+      "Penyesuaian berhasil diajukan! Status: Menunggu Persetujuan",
     );
+    router.push("/dashboard/adjustments");
   };
 
   return (

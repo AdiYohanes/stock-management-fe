@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import {
   useReactTable,
@@ -7,12 +8,13 @@ import {
   flexRender,
   createColumnHelper,
 } from "@tanstack/react-table";
-import { Plus, Eye } from "lucide-react";
+import { Plus, Eye, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MOCK_ADJUSTMENTS } from "@/lib/constants/mock-adjustment";
 import { formatNumber } from "@/lib/formatters";
 import type { StockAdjustment, AdjustmentStatus } from "@/lib/types/adjustment";
 import { ADJUSTMENT_REASON_LABELS } from "@/lib/types/adjustment";
+import { useAdjustmentStore } from "@/stores/adjustment-store";
 
 /** Format ISO date string to Indonesian locale (e.g. "22 Mei 2026") */
 function formatDateID(isoDate: string): string {
@@ -53,20 +55,47 @@ const columns = [
   col.display({
     id: "actions",
     header: "Aksi",
-    cell: ({ row }) => (
-      <Link href={`/dashboard/adjustments/${row.original.id}`}>
-        <Button variant="ghost" size="sm">
-          <Eye className="mr-1.5 h-4 w-4" />
-          Lihat Detail
-        </Button>
-      </Link>
-    ),
+    cell: ({ row }) => {
+      const isPending = row.original.status === "PENDING";
+      return (
+        <div className="flex items-center gap-1">
+          <Link href={`/dashboard/adjustments/${row.original.id}`}>
+            <Button variant="ghost" size="sm">
+              <Eye className="mr-1.5 h-4 w-4" />
+              Lihat
+            </Button>
+          </Link>
+          {isPending && (
+            <Link href={`/dashboard/adjustments/${row.original.id}`}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-amber-700 border-amber-300 hover:bg-amber-50"
+              >
+                <ClipboardCheck className="mr-1.5 h-4 w-4" />
+                Review
+              </Button>
+            </Link>
+          )}
+        </div>
+      );
+    },
   }),
 ];
 
 export default function AdjustmentsPage() {
+  const { adjustments: storeAdjustments } = useAdjustmentStore();
+
+  // Merge store adjustments with mock data, sorted by date descending
+  const allAdjustments = useMemo(() => {
+    const merged = [...storeAdjustments, ...MOCK_ADJUSTMENTS];
+    return merged.sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+    );
+  }, [storeAdjustments]);
+
   const table = useReactTable({
-    data: MOCK_ADJUSTMENTS,
+    data: allAdjustments,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
@@ -108,18 +137,32 @@ export default function AdjustmentsPage() {
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr
-                key={row.id}
-                className="border-b transition-colors hover:bg-muted/50"
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-3">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
+            {table.getRowModel().rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-8 text-center text-muted-foreground"
+                >
+                  Belum ada data penyesuaian stok.
+                </td>
               </tr>
-            ))}
+            ) : (
+              table.getRowModel().rows.map((row) => (
+                <tr
+                  key={row.id}
+                  className="border-b transition-colors hover:bg-muted/50"
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="px-4 py-3">
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext(),
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

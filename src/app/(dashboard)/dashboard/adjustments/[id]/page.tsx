@@ -1,15 +1,58 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { ArrowLeft, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { MOCK_ADJUSTMENTS } from "@/lib/constants/mock-adjustment";
 import { formatNumber } from "@/lib/formatters";
-import type { AdjustmentStatus } from "@/lib/types/adjustment";
+import type { AdjustmentStatus, StockAdjustment } from "@/lib/types/adjustment";
 import { ADJUSTMENT_REASON_LABELS } from "@/lib/types/adjustment";
+import { useAdjustmentStore } from "@/stores/adjustment-store";
+import { logMockStockUpdate } from "@/lib/utils/adjustment-actions";
 
-/** Format ISO date string to Indonesian locale with time (e.g. "22 Mei 2026, 09:15 WIB") */
+// ─── Rejection Reason Schema ─────────────────────────────────────────────────
+
+const rejectionReasonSchema = z.object({
+  rejection_reason: z
+    .string()
+    .min(3, "Alasan penolakan minimal 3 karakter")
+    .max(300, "Alasan penolakan maksimal 300 karakter"),
+});
+
+type RejectionReasonValues = z.infer<typeof rejectionReasonSchema>;
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Format ISO date string to Indonesian locale with time */
 function formatDateTimeID(isoDate: string): string {
   const date = new Date(isoDate);
   const dateStr = date.toLocaleDateString("id-ID", {
@@ -27,9 +70,40 @@ function formatDateTimeID(isoDate: string): string {
   return `${dateStr}, ${timeStr} WIB`;
 }
 
+// ─── Page Component ──────────────────────────────────────────────────────────
+
 export default function AdjustmentDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const adjustment = MOCK_ADJUSTMENTS.find((a) => a.id === id);
+  const router = useRouter();
+  const { getAdjustmentById, approveAdjustment, rejectAdjustment } =
+    useAdjustmentStore();
+
+  const [isApproving, setIsApproving] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+
+  // Look up in store first, then fall back to mock data
+  const storeAdjustment = getAdjustmentById(id);
+  const mockAdjustment = MOCK_ADJUSTMENTS.find((a) => a.id === id);
+  const adjustment: StockAdjustment | undefined =
+    storeAdjustment ?? mockAdjustment;
+
+  // Whether this adjustment is from the store (can be reviewed)
+  const isFromStore = storeAdjustment !== undefined;
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isValid },
+    watch,
+    reset,
+  } = useForm<RejectionReasonValues>({
+    resolver: zodResolver(rejectionReasonSchema),
+    mode: "onChange",
+    defaultValues: { rejection_reason: "" },
+  });
+
+  const rejectionReasonLength = watch("rejection_reason")?.length ?? 0;
 
   if (!adjustment) {
     return (
@@ -51,6 +125,44 @@ export default function AdjustmentDetailPage() {
   const diffLabel =
     qtyDiff >= 0 ? `+${formatNumber(qtyDiff)}` : formatNumber(qtyDiff);
   const diffColor = qtyDiff >= 0 ? "text-emerald-700" : "text-red-700";
+
+  const canReview = adjustment.status === "PENDING" && isFromStore;
+
+  // ─── Handlers ────────────────────────────────────────────────────────────
+
+  const handleApprove = async () => {
+    setIsApproving(true);
+    // Simulate processing delay
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    approveAdjustment({
+      id: adjustment.id,
+      approved_by: "Supervisor Gudang", // Mock reviewer
+    });
+
+    logMockStockUpdate(adjustment);
+    setIsApproving(false);
+    toast.success("Penyesuaian berhasil disetujui!");
+    router.refresh();
+  };
+
+  const handleReject = async (data: RejectionReasonValues) => {
+    setIsRejecting(true);
+    // Simulate processing delay
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    rejectAdjustment({
+      id: adjustment.id,
+      approved_by: "Supervisor Gudang", // Mock reviewer
+      rejection_reason: data.rejection_reason.trim(),
+    });
+
+    setIsRejecting(false);
+    setRejectDialogOpen(false);
+    reset();
+    toast.success("Penyesuaian berhasil ditolak.");
+    router.refresh();
+  };
 
   return (
     <div className="space-y-6">
@@ -118,7 +230,160 @@ export default function AdjustmentDetailPage() {
         )}
       </div>
 
-      {/* Approval Info */}
+      {/* Review Approval Section — only for PENDING store adjustments */}
+      {canReview && (
+        <div className="rounded-md border border-amber-200 bg-amber-50/50 p-6 space-y-4">
+          <h2 className="text-lg font-semibold text-amber-900">
+            Review Approval
+          </h2>
+          <p className="text-sm text-amber-800">
+            Penyesuaian ini menunggu persetujuan. Silakan review dan pilih aksi
+            di bawah.
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Approve Button with AlertDialog confirmation */}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                  disabled={isApproving || isRejecting}
+                >
+                  {isApproving ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                  )}
+                  {isApproving ? "Memproses..." : "Setujui"}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Konfirmasi Persetujuan</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Apakah Anda yakin ingin menyetujui penyesuaian stok ini?
+                    Perubahan stok akan diterapkan:{" "}
+                    <strong>
+                      {adjustment.product_name} (
+                      {formatNumber(adjustment.qty_before)} →{" "}
+                      {formatNumber(adjustment.qty_after)})
+                    </strong>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isApproving}>
+                    Batal
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleApprove}
+                    disabled={isApproving}
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    {isApproving && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    Ya, Setujui
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Reject Button with Dialog for reason input */}
+            <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="border-red-300 text-red-700 hover:bg-red-50"
+                  disabled={isApproving || isRejecting}
+                >
+                  {isRejecting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <XCircle className="mr-2 h-4 w-4" />
+                  )}
+                  {isRejecting ? "Memproses..." : "Tolak"}
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Tolak Penyesuaian</DialogTitle>
+                  <DialogDescription>
+                    Berikan alasan penolakan untuk penyesuaian{" "}
+                    <strong>{adjustment.adj_number}</strong>. Alasan ini akan
+                    ditampilkan kepada pengaju.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <form
+                  onSubmit={handleSubmit(handleReject)}
+                  className="space-y-4"
+                  noValidate
+                >
+                  <div className="space-y-1.5">
+                    <Label htmlFor="rejection_reason">
+                      Alasan Penolakan{" "}
+                      <span className="text-destructive">*</span>
+                    </Label>
+                    <Textarea
+                      id="rejection_reason"
+                      {...register("rejection_reason")}
+                      placeholder="Tuliskan alasan penolakan..."
+                      rows={4}
+                      maxLength={300}
+                      aria-describedby="rejection_reason-error rejection_reason-count"
+                      aria-invalid={!!errors.rejection_reason}
+                    />
+                    <div className="flex items-center justify-between">
+                      {errors.rejection_reason ? (
+                        <p
+                          id="rejection_reason-error"
+                          className="text-xs text-destructive"
+                        >
+                          {errors.rejection_reason.message}
+                        </p>
+                      ) : (
+                        <span />
+                      )}
+                      <p
+                        id="rejection_reason-count"
+                        className="text-xs text-muted-foreground"
+                      >
+                        {rejectionReasonLength}/300
+                      </p>
+                    </div>
+                  </div>
+
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setRejectDialogOpen(false);
+                        reset();
+                      }}
+                      disabled={isRejecting}
+                    >
+                      Batal
+                    </Button>
+                    <Button
+                      type="submit"
+                      variant="destructive"
+                      disabled={!isValid || isRejecting}
+                    >
+                      {isRejecting && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      {isRejecting ? "Memproses..." : "Tolak Penyesuaian"}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </div>
+      )}
+
+      {/* Approval Info — for already processed adjustments */}
       {(adjustment.status === "APPROVED" ||
         adjustment.status === "REJECTED") && (
         <div className="rounded-md border p-6 space-y-3">
@@ -158,6 +423,8 @@ export default function AdjustmentDetailPage() {
     </div>
   );
 }
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
 
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
