@@ -76,10 +76,12 @@ export default function AdjustmentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Penyesuaian Stok</h1>
-        <Button disabled>
-          <Plus className="mr-2 h-4 w-4" />
-          Ajukan Penyesuaian
-        </Button>
+        <Link href="/dashboard/adjustments/new">
+          <Button>
+            <Plus className="mr-2 h-4 w-4" />
+            Ajukan Penyesuaian
+          </Button>
+        </Link>
       </div>
 
       {/* Table */}
