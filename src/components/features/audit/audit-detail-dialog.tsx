@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,6 +8,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
 import { formatDateTimeID } from "@/lib/formatters";
 import type { AuditLog } from "@/lib/types/audit";
 
@@ -21,18 +24,65 @@ export function AuditDetailDialog({
   open,
   onOpenChange,
 }: AuditDetailDialogProps) {
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Handle keyboard navigation within dialog
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onOpenChange(false);
+      }
+    },
+    [onOpenChange],
+  );
+
+  // Auto-focus the dialog content when opened for screen reader announcement
+  useEffect(() => {
+    if (open && contentRef.current) {
+      // Small delay to ensure dialog is rendered
+      const timer = setTimeout(() => {
+        contentRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
+
   if (!log) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent
+        ref={contentRef}
+        className="max-h-[90vh] w-[95vw] max-w-2xl overflow-y-auto backdrop-blur-sm sm:max-h-[85vh] sm:w-full"
+        onKeyDown={handleKeyDown}
+        aria-labelledby="audit-detail-title"
+        aria-describedby="audit-detail-description"
+      >
         <DialogHeader>
-          <DialogTitle>Detail Audit Log</DialogTitle>
-          <DialogDescription>{log.description}</DialogDescription>
+          <DialogTitle id="audit-detail-title">Detail Audit Log</DialogTitle>
+          <DialogDescription id="audit-detail-description">
+            {log.description}
+          </DialogDescription>
         </DialogHeader>
 
+        {/* Explicit close button with accessible touch target */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onOpenChange(false)}
+          className="absolute right-4 top-4 h-8 w-8 rounded-full p-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          aria-label="Tutup dialog detail audit"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+
         {/* Metadata section */}
-        <div className="grid grid-cols-2 gap-4 rounded-md border p-4 text-sm">
+        <div
+          className="grid grid-cols-1 gap-4 rounded-md border p-4 text-sm sm:grid-cols-2"
+          role="group"
+          aria-label="Informasi metadata audit log"
+        >
           <MetadataItem label="Waktu" value={formatDateTimeID(log.timestamp)} />
           <MetadataItem
             label="User"
@@ -65,6 +115,17 @@ export function AuditDetailDialog({
             />
           </div>
         </div>
+
+        {/* Footer close button for mobile accessibility */}
+        <div className="mt-4 flex justify-end sm:hidden">
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            className="min-h-[44px] w-full"
+          >
+            Tutup
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -73,8 +134,12 @@ export function AuditDetailDialog({
 function MetadataItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <span className="text-muted-foreground">{label}</span>
-      <p className="mt-0.5 font-medium">{value}</p>
+      <span className="text-muted-foreground" aria-hidden="true">
+        {label}
+      </span>
+      <p className="mt-0.5 font-medium" aria-label={`${label}: ${value}`}>
+        {value}
+      </p>
     </div>
   );
 }
@@ -90,12 +155,16 @@ function ValueBlock({
 }) {
   const bgClass =
     variant === "old"
-      ? "bg-red-50 border-red-200"
-      : "bg-green-50 border-green-200";
+      ? "bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-800"
+      : "bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-800";
 
   if (!values) {
     return (
-      <div className={`rounded-md border p-3 ${bgClass}`}>
+      <div
+        className={`rounded-md border p-3 ${bgClass}`}
+        role="region"
+        aria-label={title}
+      >
         <p className="mb-2 text-xs font-medium text-muted-foreground">
           {title}
         </p>
@@ -105,9 +174,13 @@ function ValueBlock({
   }
 
   return (
-    <div className={`rounded-md border p-3 ${bgClass}`}>
+    <div
+      className={`rounded-md border p-3 ${bgClass}`}
+      role="region"
+      aria-label={title}
+    >
       <p className="mb-2 text-xs font-medium text-muted-foreground">{title}</p>
-      <pre className="whitespace-pre-wrap break-words text-xs font-mono leading-relaxed">
+      <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-xs font-mono leading-relaxed">
         {JSON.stringify(values, null, 2)}
       </pre>
     </div>

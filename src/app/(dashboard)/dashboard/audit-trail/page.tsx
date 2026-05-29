@@ -27,7 +27,7 @@ import {
 } from "@/lib/utils/audit-filters";
 import type { AuditLog, AuditAction } from "@/lib/types/audit";
 
-// -- Action badge color mapping --
+// -- Action badge color mapping (consistent with other modules) --
 const ACTION_BADGE_STYLES: Record<AuditAction, string> = {
   CREATE: "bg-blue-100 text-blue-800",
   UPDATE: "bg-amber-100 text-amber-800",
@@ -243,8 +243,8 @@ export default function AuditTrailPage() {
           userOptions={userOptions}
         />
 
-        {/* Export button row */}
-        <div className="flex items-center justify-between">
+        {/* Export button row — full-width on mobile */}
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <p className="text-xs text-muted-foreground">
             {filteredData.length} dari {MOCK_AUDIT_LOGS.length} log ditemukan
           </p>
@@ -253,10 +253,15 @@ export default function AuditTrailPage() {
             size="sm"
             onClick={handleExportCsv}
             disabled={isExportDisabled}
-            className="shrink-0"
+            className="min-h-[44px] w-full shrink-0 md:min-h-[36px] md:w-auto"
+            aria-label={
+              isExporting
+                ? "Sedang mengexport..."
+                : `Export ${filteredData.length} log audit ke CSV`
+            }
           >
             <Download className="mr-1.5 h-4 w-4" />
-            Export CSV
+            {isExporting ? "Mengexport..." : "Export CSV"}
           </Button>
         </div>
       </div>
@@ -267,19 +272,32 @@ export default function AuditTrailPage() {
       {/* Empty State */}
       {!isLoading && filteredData.length === 0 && <AuditEmptyState />}
 
-      {/* Table */}
+      {/* Table with aria-live for dynamic content updates */}
       {!isLoading && filteredData.length > 0 && (
-        <>
+        <div aria-live="polite" aria-atomic="true">
+          {/* Accessible status announcement (screen readers only) */}
+          <p className="sr-only">
+            Menampilkan {table.getRowModel().rows.length} dari{" "}
+            {filteredData.length} log audit. Halaman{" "}
+            {table.getState().pagination.pageIndex + 1} dari{" "}
+            {table.getPageCount()}.
+          </p>
+
+          {/* Table with horizontal scroll and sticky first column on mobile */}
           <div className="overflow-x-auto rounded-md border">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm" role="table">
               <thead className="border-b bg-muted/50">
                 {table.getHeaderGroups().map((hg) => (
                   <tr key={hg.id}>
-                    {hg.headers.map((header) => (
+                    {hg.headers.map((header, headerIndex) => (
                       <th
                         key={header.id}
                         scope="col"
-                        className="px-4 py-3 text-left font-medium text-muted-foreground"
+                        className={`px-4 py-3 text-left font-medium text-muted-foreground ${
+                          headerIndex === 0
+                            ? "sticky left-0 z-10 bg-muted/50 md:static md:z-auto"
+                            : ""
+                        }`}
                       >
                         {header.isPlaceholder
                           ? null
@@ -298,8 +316,15 @@ export default function AuditTrailPage() {
                     key={row.id}
                     className="border-b transition-colors hover:bg-muted/50"
                   >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-4 py-3">
+                    {row.getVisibleCells().map((cell, cellIndex) => (
+                      <td
+                        key={cell.id}
+                        className={`px-4 py-3 ${
+                          cellIndex === 0
+                            ? "sticky left-0 z-10 bg-background md:static md:z-auto"
+                            : ""
+                        }`}
+                      >
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext(),
@@ -313,8 +338,10 @@ export default function AuditTrailPage() {
           </div>
 
           {/* Pagination controls */}
-          <AuditPagination table={table} />
-        </>
+          <div className="mt-4">
+            <AuditPagination table={table} />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -326,9 +353,15 @@ function DetailButton({ log }: { log: AuditLog }) {
 
   return (
     <>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(true)}
+        className="min-h-[44px] min-w-[44px] md:min-h-[36px] md:min-w-[36px]"
+        aria-label={`Lihat detail audit log: ${log.description}`}
+      >
         <Eye className="mr-1.5 h-4 w-4" />
-        Lihat Detail
+        <span className="hidden sm:inline">Lihat Detail</span>
       </Button>
       <AuditDetailDialog log={log} open={open} onOpenChange={setOpen} />
     </>
