@@ -11,9 +11,30 @@ const AUDIT_CSV_HEADERS = [
   "Detail Singkat",
 ] as const;
 
+/** Maximum character length for a single CSV cell value before truncation */
+const CSV_CELL_MAX_LENGTH = 100;
+
+/**
+ * Sanitize and truncate a string value for safe CSV output.
+ * - Truncates to CSV_CELL_MAX_LENGTH characters with "..." suffix
+ * - Handles special characters (commas, quotes, newlines) via the shared exportCsv utility
+ *
+ * Per RFC 4180: fields containing commas, double-quotes, or line breaks
+ * are wrapped in double-quotes, with internal quotes escaped as "".
+ * The shared `exportCsv` utility handles the wrapping/escaping;
+ * this function only handles truncation for readability in spreadsheets.
+ */
+function sanitizeCsvCellValue(value: string): string {
+  if (value.length <= CSV_CELL_MAX_LENGTH) {
+    return value;
+  }
+  return value.slice(0, CSV_CELL_MAX_LENGTH) + "...";
+}
+
 /**
  * Summarize old/new values into a short string for CSV readability.
  * Avoids raw JSON overflow in spreadsheet cells.
+ * Truncates output to CSV_CELL_MAX_LENGTH to prevent cell overflow in Excel.
  */
 function summarizeValues(log: AuditLog): string {
   const parts: string[] = [];
@@ -37,22 +58,23 @@ function summarizeValues(log: AuditLog): string {
   }
 
   if (parts.length === 0) {
-    return log.description;
+    return sanitizeCsvCellValue(log.description);
   }
 
-  return parts.join(" | ");
+  return sanitizeCsvCellValue(parts.join(" | "));
 }
 
 /**
  * Transform an array of AuditLog entries into CSV rows.
  * Each row maps to AUDIT_CSV_HEADERS order.
+ * All cell values are sanitized for CSV compatibility (truncation + safe characters).
  */
 function buildAuditRows(logs: AuditLog[]): string[][] {
   return logs.map((log) => [
     formatDateTimeID(log.timestamp),
-    `${log.user_name} (${log.user_role})`,
+    sanitizeCsvCellValue(`${log.user_name} (${log.user_role})`),
     log.action,
-    `${log.entity_type} — ${log.entity_label}`,
+    sanitizeCsvCellValue(`${log.entity_type} — ${log.entity_label}`),
     summarizeValues(log),
   ]);
 }
@@ -60,6 +82,8 @@ function buildAuditRows(logs: AuditLog[]): string[][] {
 /**
  * Export filtered audit logs to a CSV file.
  * Generates filename with current date for traceability.
+ *
+ * // TODO: Replace with backend API endpoint — POST /api/v1/audit/export
  */
 export function exportAuditCsv(logs: AuditLog[]): void {
   const now = new Date();

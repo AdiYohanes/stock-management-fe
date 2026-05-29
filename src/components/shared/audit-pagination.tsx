@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,21 +20,42 @@ const PAGINATION_DEBOUNCE_MS = 500;
 
 interface AuditPaginationProps<TData> {
   table: Table<TData>;
+  /** Total number of items across all pages (for display text) */
+  totalItems: number;
 }
 
 /**
  * Pagination controls for the audit trail table.
- * Includes per-page dropdown, prev/next buttons, page indicator,
+ * Includes per-page dropdown, prev/next buttons, range indicator,
  * double-click prevention, keyboard navigation, and mobile responsive layout.
+ *
+ * Displays "Menampilkan X-Y dari Z" for clear data range communication.
+ * Disables Next button when total data < per_page (single page scenario).
  */
-export function AuditPagination<TData>({ table }: AuditPaginationProps<TData>) {
+export function AuditPagination<TData>({
+  table,
+  totalItems,
+}: AuditPaginationProps<TData>) {
   const pageIndex = table.getState().pagination.pageIndex;
   const pageCount = table.getPageCount();
   const pageSize = table.getState().pagination.pageSize;
 
+  // Calculate display range (1-indexed for user-facing text)
+  const rangeStart = pageIndex * pageSize + 1;
+  const rangeEnd = Math.min((pageIndex + 1) * pageSize, totalItems);
+
   // Double-click prevention state
   const [isNavigating, setIsNavigating] = useState(false);
   const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (navTimerRef.current) {
+        clearTimeout(navTimerRef.current);
+      }
+    };
+  }, []);
 
   // Debounced page navigation to prevent double-clicks
   const handlePageChange = useCallback(
@@ -110,35 +131,42 @@ export function AuditPagination<TData>({ table }: AuditPaginationProps<TData>) {
         </Select>
       </div>
 
-      {/* Page indicator + navigation */}
-      <div className="flex w-full items-center gap-2 md:w-auto">
-        <span className="flex-1 text-sm text-muted-foreground md:flex-none">
-          Halaman {pageIndex + 1} dari {pageCount || 1}
+      {/* Range indicator + page navigation */}
+      <div className="flex w-full flex-col items-start gap-2 md:w-auto md:flex-row md:items-center">
+        {/* "Menampilkan X-Y dari Z" — clear data range communication */}
+        <span className="text-sm text-muted-foreground" aria-live="polite">
+          Menampilkan {rangeStart}-{rangeEnd} dari {totalItems}
         </span>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handlePageChange("prev")}
-          disabled={isPrevDisabled}
-          aria-label="Halaman sebelumnya"
-          className="min-h-[44px] min-w-[44px] flex-1 md:min-h-[36px] md:min-w-[36px] md:flex-none"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          <span className="ml-1 hidden sm:inline">Prev</span>
-        </Button>
+        <div className="flex w-full items-center gap-2 md:w-auto">
+          <span className="flex-1 text-sm text-muted-foreground md:flex-none">
+            Halaman {pageIndex + 1} dari {pageCount || 1}
+          </span>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handlePageChange("next")}
-          disabled={isNextDisabled}
-          aria-label="Halaman berikutnya"
-          className="min-h-[44px] min-w-[44px] flex-1 md:min-h-[36px] md:min-w-[36px] md:flex-none"
-        >
-          <span className="mr-1 hidden sm:inline">Next</span>
-          <ChevronRight className="h-4 w-4" />
-        </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handlePageChange("prev")}
+            disabled={isPrevDisabled}
+            aria-label="Halaman sebelumnya"
+            className="min-h-[44px] min-w-[44px] flex-1 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:min-h-[36px] md:min-w-[36px] md:flex-none"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            <span className="ml-1 hidden sm:inline">Prev</span>
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handlePageChange("next")}
+            disabled={isNextDisabled}
+            aria-label="Halaman berikutnya"
+            className="min-h-[44px] min-w-[44px] flex-1 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:min-h-[36px] md:min-w-[36px] md:flex-none"
+          >
+            <span className="mr-1 hidden sm:inline">Next</span>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );

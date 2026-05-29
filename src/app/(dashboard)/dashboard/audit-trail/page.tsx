@@ -27,6 +27,8 @@ import {
 } from "@/lib/utils/audit-filters";
 import type { AuditLog, AuditAction } from "@/lib/types/audit";
 
+// TODO: Replace with backend API endpoint — GET /api/v1/audit (paginated, filterable)
+
 // -- Action badge color mapping (consistent with other modules) --
 const ACTION_BADGE_STYLES: Record<AuditAction, string> = {
   CREATE: "bg-blue-100 text-blue-800",
@@ -151,6 +153,7 @@ export default function AuditTrailPage() {
     [filters, debouncedSearch],
   );
 
+  // TODO: Replace with backend API endpoint — GET /api/v1/audit (server-side filter)
   // Apply filters to mock data
   const filteredData = useMemo(
     () => applyAuditFilters(MOCK_AUDIT_LOGS, activeFilters),
@@ -253,7 +256,7 @@ export default function AuditTrailPage() {
             size="sm"
             onClick={handleExportCsv}
             disabled={isExportDisabled}
-            className="min-h-[44px] w-full shrink-0 md:min-h-[36px] md:w-auto"
+            className="min-h-[44px] w-full shrink-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:min-h-[36px] md:w-auto"
             aria-label={
               isExporting
                 ? "Sedang mengexport..."
@@ -339,7 +342,7 @@ export default function AuditTrailPage() {
 
           {/* Pagination controls */}
           <div className="mt-4">
-            <AuditPagination table={table} />
+            <AuditPagination table={table} totalItems={filteredData.length} />
           </div>
         </div>
       )}
@@ -357,7 +360,7 @@ function DetailButton({ log }: { log: AuditLog }) {
         variant="ghost"
         size="sm"
         onClick={() => setOpen(true)}
-        className="min-h-[44px] min-w-[44px] md:min-h-[36px] md:min-w-[36px]"
+        className="min-h-[44px] min-w-[44px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:min-h-[36px] md:min-w-[36px]"
         aria-label={`Lihat detail audit log: ${log.description}`}
       >
         <Eye className="mr-1.5 h-4 w-4" />

@@ -25,11 +25,17 @@ export function AuditDetailDialog({
   onOpenChange,
 }: AuditDetailDialogProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Handle keyboard navigation within dialog
+  // Handle keyboard navigation within dialog — focus trap via Radix Dialog
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
+        onOpenChange(false);
+      }
+      // Enter on focused close button triggers close
+      if (e.key === "Enter" && e.target === closeButtonRef.current) {
         e.preventDefault();
         onOpenChange(false);
       }
@@ -37,12 +43,11 @@ export function AuditDetailDialog({
     [onOpenChange],
   );
 
-  // Auto-focus the dialog content when opened for screen reader announcement
+  // Auto-focus the close button when dialog opens for immediate keyboard access
   useEffect(() => {
-    if (open && contentRef.current) {
-      // Small delay to ensure dialog is rendered
+    if (open && closeButtonRef.current) {
       const timer = setTimeout(() => {
-        contentRef.current?.focus();
+        closeButtonRef.current?.focus();
       }, 50);
       return () => clearTimeout(timer);
     }
@@ -68,6 +73,7 @@ export function AuditDetailDialog({
 
         {/* Explicit close button with accessible touch target */}
         <Button
+          ref={closeButtonRef}
           variant="ghost"
           size="sm"
           onClick={() => onOpenChange(false)}
@@ -97,7 +103,7 @@ export function AuditDetailDialog({
           <MetadataItem label="ID Log" value={log.id} />
         </div>
 
-        {/* JSON diff comparison */}
+        {/* JSON diff comparison with scroll containers for overflow */}
         <div className="space-y-4">
           <h4 className="text-sm font-medium text-muted-foreground">
             Perbandingan Nilai
@@ -121,7 +127,7 @@ export function AuditDetailDialog({
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            className="min-h-[44px] w-full"
+            className="min-h-[44px] w-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             Tutup
           </Button>
@@ -180,9 +186,16 @@ function ValueBlock({
       aria-label={title}
     >
       <p className="mb-2 text-xs font-medium text-muted-foreground">{title}</p>
-      <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-xs font-mono leading-relaxed">
-        {JSON.stringify(values, null, 2)}
-      </pre>
+      {/* Scroll container with max-h-64 to prevent overflow on long JSON values */}
+      <div className="max-h-64 overflow-auto rounded border border-inherit bg-white/50 p-2 dark:bg-black/10">
+        <pre
+          className="whitespace-pre-wrap break-words text-xs font-mono leading-relaxed"
+          tabIndex={0}
+          aria-label={`${title} JSON data`}
+        >
+          {JSON.stringify(values, null, 2)}
+        </pre>
+      </div>
     </div>
   );
 }

@@ -250,7 +250,7 @@ export function AuditFilters({
           size="sm"
           onClick={handleReset}
           disabled={!hasActiveFilters}
-          className="min-h-[44px] w-full shrink-0 md:min-h-[36px] md:w-auto"
+          className="min-h-[44px] w-full shrink-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:min-h-[36px] md:w-auto"
         >
           <RotateCcw className="mr-1.5 h-4 w-4" />
           Reset Filter
