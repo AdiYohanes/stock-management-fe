@@ -3,8 +3,27 @@ import type { UserAccount } from "@/lib/types/user";
 /**
  * Mock user data for User Management page.
  * Realistic Indonesian names, company email domain, varied roles and statuses.
+ * NOTE: admin@demo.com is a protected system user — cannot be mutated via UI.
  */
 export const MOCK_USERS: UserAccount[] = [
+  {
+    id: "usr-000",
+    name: "System Administrator",
+    email: "admin@demo.com",
+    role: "ADMIN",
+    status: "AKTIF",
+    last_login: "2026-05-29T09:30:00+07:00",
+    created_at: "2025-01-01T00:00:00+07:00",
+    updated_at: "2026-05-29T09:30:00+07:00",
+    activity_logs: [
+      {
+        id: "log-000",
+        action: "LOGIN",
+        timestamp: "2026-05-29T09:30:00+07:00",
+        description: "Login berhasil dari 192.168.1.1",
+      },
+    ],
+  },
   {
     id: "usr-001",
     name: "Budi Santoso",

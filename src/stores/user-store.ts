@@ -2,7 +2,26 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { MOCK_USERS } from "@/lib/constants/mock-users";
 import type { UserAccount, UserStatus } from "@/lib/types/user";
-import type { CreateUserFormValues } from "@/lib/validators/user";
+import type {
+  CreateUserFormValues,
+  UpdateUserFormValues,
+} from "@/lib/validators/user";
+
+/** Protected user email — cannot be mutated via UI */
+const PROTECTED_USER_EMAIL = "admin@demo.com";
+
+/**
+ * Check if a user is protected from mutation actions (toggle, disable, edit).
+ * Protected users: email === "admin@demo.com" OR role === "ADMIN"
+ */
+export function isProtectedUser(
+  user: Pick<UserAccount, "email" | "role">,
+): boolean {
+  return (
+    user.email.toLowerCase() === PROTECTED_USER_EMAIL.toLowerCase() ||
+    user.role === "ADMIN"
+  );
+}
 
 /** Store state shape */
 interface UserStoreState {
@@ -13,6 +32,8 @@ interface UserStoreState {
 interface UserStoreActions {
   /** Add a new user to the store. Returns error message if email is duplicate. */
   addUser: (data: CreateUserFormValues) => string | null;
+  /** Update an existing user by ID. Returns error message if user not found. */
+  updateUser: (id: string, data: UpdateUserFormValues) => string | null;
   /** Toggle user status between AKTIF and NONAKTIF */
   toggleUserStatus: (userId: string) => void;
   /** Disable (lock) a user — sets status to TERKUNCI */
@@ -67,6 +88,43 @@ export const useUserStore = create<UserStore>()(
         };
 
         set({ users: [newUser, ...users] });
+        return null;
+      },
+
+      updateUser: (id: string, data: UpdateUserFormValues): string | null => {
+        const { users } = get();
+        const userIndex = users.findIndex((u) => u.id === id);
+
+        if (userIndex === -1) {
+          return "Pengguna tidak ditemukan";
+        }
+
+        const now = new Date().toISOString();
+        const existingUser = users[userIndex]!;
+
+        const updatedUser: UserAccount = {
+          id: existingUser.id,
+          email: existingUser.email,
+          last_login: existingUser.last_login,
+          created_at: existingUser.created_at,
+          name: data.name,
+          role: data.role,
+          status: data.status,
+          updated_at: now,
+          activity_logs: [
+            {
+              id: `log-${Date.now()}`,
+              action: "ACCOUNT_UPDATED",
+              timestamp: now,
+              description: "Data pengguna diperbarui",
+            },
+            ...existingUser.activity_logs,
+          ],
+        };
+
+        const updatedUsers = [...users];
+        updatedUsers[userIndex] = updatedUser;
+        set({ users: updatedUsers });
         return null;
       },
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   useReactTable,
   getCoreRowModel,
@@ -14,9 +15,13 @@ import {
   Lock,
   Unlock,
   Users,
+  Search,
+  UserPlus,
+  UserX,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +37,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { UserProfileDialog } from "@/components/features/users/user-profile-dialog";
-import { useUserStore } from "@/stores/user-store";
+import { useUserStore, isProtectedUser } from "@/stores/user-store";
+import { useDebounce } from "@/hooks/use-debounce";
 import { formatDateTime } from "@/lib/formatters";
 import type { UserAccount, UserStatus } from "@/lib/types/user";
 import type { UserRole } from "@/lib/validators/auth";
@@ -63,6 +69,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
 const col = createColumnHelper<UserAccount>();
 
 export default function UsersPage() {
+  // TODO: Replace with backend API endpoint — GET /api/v1/users
   const users = useUserStore((s) => s.users);
   const toggleUserStatus = useUserStore((s) => s.toggleUserStatus);
   const disableUser = useUserStore((s) => s.disableUser);
@@ -70,6 +77,21 @@ export default function UsersPage() {
 
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Debounce search input (300ms)
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
+  // Client-side filter by name or email
+  const filteredUsers = useMemo(() => {
+    if (!debouncedSearch.trim()) return users;
+    const query = debouncedSearch.toLowerCase();
+    return users.filter(
+      (u) =>
+        u.name.toLowerCase().includes(query) ||
+        u.email.toLowerCase().includes(query),
+    );
+  }, [users, debouncedSearch]);
 
   // Confirmation dialog state for disable/enable
   const [confirmAction, setConfirmAction] = useState<{
@@ -88,6 +110,10 @@ export default function UsersPage() {
   };
 
   const handleToggleStatus = (user: UserAccount) => {
+    if (isProtectedUser(user)) {
+      toast.info("Pengguna ini dilindungi dan tidak dapat diubah statusnya");
+      return;
+    }
     toggleUserStatus(user.id);
     const newStatus = user.status === "AKTIF" ? "NONAKTIF" : "AKTIF";
     toast.success(`Status ${user.name} berhasil diubah menjadi ${newStatus}`);
@@ -154,6 +180,7 @@ export default function UsersPage() {
       cell: ({ row }) => {
         const user = row.original;
         const isLocked = user.status === "TERKUNCI";
+        const isProtected = isProtectedUser(user);
 
         return (
           <DropdownMenu>
@@ -172,8 +199,23 @@ export default function UsersPage() {
                 Lihat Detail
               </DropdownMenuItem>
 
-              {/* Toggle Status: only available when not TERKUNCI */}
-              {!isLocked && (
+              {/* Edit — disabled for protected users */}
+              <DropdownMenuItem disabled={isProtected} asChild={!isProtected}>
+                {isProtected ? (
+                  <span className="flex items-center opacity-50">
+                    <UserX className="mr-2 h-4 w-4" />
+                    Edit (Dilindungi)
+                  </span>
+                ) : (
+                  <Link href={`/dashboard/users/${user.id}/edit`}>
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Edit Pengguna
+                  </Link>
+                )}
+              </DropdownMenuItem>
+
+              {/* Toggle Status: only available when not TERKUNCI and not protected */}
+              {!isLocked && !isProtected && (
                 <DropdownMenuItem onClick={() => handleToggleStatus(user)}>
                   <ToggleLeft className="mr-2 h-4 w-4" />
                   {user.status === "AKTIF"
@@ -182,22 +224,28 @@ export default function UsersPage() {
                 </DropdownMenuItem>
               )}
 
-              {/* Disable/Enable (lock/unlock) */}
-              {isLocked ? (
-                <DropdownMenuItem
-                  onClick={() => setConfirmAction({ user, type: "enable" })}
-                >
-                  <Unlock className="mr-2 h-4 w-4" />
-                  Aktifkan Akun
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem
-                  onClick={() => setConfirmAction({ user, type: "disable" })}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Lock className="mr-2 h-4 w-4" />
-                  Kunci Akun
-                </DropdownMenuItem>
+              {/* Disable/Enable (lock/unlock) — disabled for protected users */}
+              {!isProtected && (
+                <>
+                  {isLocked ? (
+                    <DropdownMenuItem
+                      onClick={() => setConfirmAction({ user, type: "enable" })}
+                    >
+                      <Unlock className="mr-2 h-4 w-4" />
+                      Aktifkan Akun
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        setConfirmAction({ user, type: "disable" })
+                      }
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Lock className="mr-2 h-4 w-4" />
+                      Kunci Akun
+                    </DropdownMenuItem>
+                  )}
+                </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -207,7 +255,7 @@ export default function UsersPage() {
   ];
 
   const table = useReactTable({
-    data: users,
+    data: filteredUsers,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
@@ -215,49 +263,85 @@ export default function UsersPage() {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div className="flex items-center gap-3">
-        <Users className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold">Manajemen Pengguna</h1>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <Users className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl font-bold">Manajemen Pengguna</h1>
+        </div>
+        <Link href="/dashboard/users/new">
+          <Button>
+            <UserPlus className="mr-2 h-4 w-4" />
+            Tambah Pengguna
+          </Button>
+        </Link>
       </div>
 
-      {/* Users table */}
-      <div className="overflow-x-auto rounded-md border">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-muted/50">
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id}>
-                {hg.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    scope="col"
-                    className="px-4 py-3 text-left font-medium text-muted-foreground"
+      {/* Search input */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Cari nama atau email..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+            aria-label="Cari pengguna berdasarkan nama atau email"
+          />
+        </div>
+        {debouncedSearch.trim() && (
+          <p className="text-sm text-muted-foreground">
+            {filteredUsers.length} pengguna ditemukan
+          </p>
+        )}
+      </div>
+
+      {/* Users table with aria-live for dynamic content updates */}
+      <div aria-live="polite" aria-atomic="true">
+        {filteredUsers.length === 0 ? (
+          <EmptyState hasSearch={!!debouncedSearch.trim()} />
+        ) : (
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead className="border-b bg-muted/50">
+                {table.getHeaderGroups().map((hg) => (
+                  <tr key={hg.id}>
+                    {hg.headers.map((header) => (
+                      <th
+                        key={header.id}
+                        scope="col"
+                        className="px-4 py-3 text-left font-medium text-muted-foreground"
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+              <tbody>
+                {table.getRowModel().rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className="border-b transition-colors hover:bg-muted/50"
                   >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-4 py-3">
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
                         )}
-                  </th>
+                      </td>
+                    ))}
+                  </tr>
                 ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr
-                key={row.id}
-                className="border-b transition-colors hover:bg-muted/50"
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-3">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Profile dialog */}
@@ -304,6 +388,23 @@ export default function UsersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/** Empty state component — consistent with Inventory module pattern */
+function EmptyState({ hasSearch }: { hasSearch: boolean }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <UserX className="h-16 w-16 text-muted-foreground/50" />
+      <h3 className="mt-4 text-lg font-medium">
+        {hasSearch ? "Tidak ada pengguna ditemukan" : "Belum ada pengguna"}
+      </h3>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {hasSearch
+          ? "Coba ubah kata kunci pencarian Anda."
+          : "Tambahkan pengguna pertama untuk memulai."}
+      </p>
     </div>
   );
 }

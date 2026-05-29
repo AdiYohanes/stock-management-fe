@@ -57,7 +57,7 @@ export const MENU_ITEMS: MenuItem[] = [
   },
   {
     label: "Jejak Audit",
-    href: "/dashboard/audit-trail",
+    href: "/dashboard/audit",
     icon: FileSearch,
     allowedRoles: ["ADMIN", "SUPERVISOR", "AUDITOR"],
   },

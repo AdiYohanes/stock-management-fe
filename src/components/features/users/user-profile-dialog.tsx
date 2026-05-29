@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useEffect, useRef } from "react";
 import { X, Shield, Clock, Mail, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -48,28 +49,114 @@ function getInitials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
+/**
+ * Get all focusable elements within a container for focus trap.
+ */
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  const elements = container.querySelectorAll<HTMLElement>(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+  );
+  return Array.from(elements).filter(
+    (el) => !el.hasAttribute("disabled") && el.offsetParent !== null,
+  );
+}
+
 export function UserProfileDialog({
   open,
   onClose,
   user,
 }: UserProfileDialogProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  // Focus trap and keyboard navigation
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (!open || !dialogRef.current) return;
+
+      // Esc closes dialog
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+
+      // Tab focus trap
+      if (e.key === "Tab") {
+        const focusable = getFocusableElements(dialogRef.current);
+        if (focusable.length === 0) return;
+
+        const firstEl = focusable[0]!;
+        const lastEl = focusable[focusable.length - 1]!;
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstEl) {
+            e.preventDefault();
+            lastEl.focus();
+          }
+        } else {
+          if (document.activeElement === lastEl) {
+            e.preventDefault();
+            firstEl.focus();
+          }
+        }
+      }
+    },
+    [open, onClose],
+  );
+
+  // Attach keyboard listener and manage focus
+  useEffect(() => {
+    if (open) {
+      // Store previously focused element to restore on close
+      previousFocusRef.current = document.activeElement as HTMLElement | null;
+
+      document.addEventListener("keydown", handleKeyDown);
+
+      // Focus the dialog container after render
+      requestAnimationFrame(() => {
+        if (dialogRef.current) {
+          const focusable = getFocusableElements(dialogRef.current);
+          if (focusable.length > 0) {
+            focusable[0]!.focus();
+          }
+        }
+      });
+
+      // Prevent body scroll
+      document.body.style.overflow = "hidden";
+    }
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+
+      // Restore focus to previously focused element
+      if (previousFocusRef.current) {
+        previousFocusRef.current.focus();
+        previousFocusRef.current = null;
+      }
+    };
+  }, [open, handleKeyDown]);
+
   if (!open || !user) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
+      {/* Backdrop with blur */}
       <div
-        className="fixed inset-0 bg-black/80"
+        className="fixed inset-0 bg-black/80 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
       />
 
       {/* Dialog content */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="user-profile-title"
-        className="relative z-50 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg border bg-background p-6 shadow-lg mx-4"
+        className="relative z-50 w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border bg-background p-6 shadow-lg mx-4"
       >
         {/* Close button */}
         <button
@@ -135,13 +222,6 @@ export function UserProfileDialog({
             <span className="text-muted-foreground">Terdaftar:</span>
             <span className="font-medium">{formatDate(user.created_at)}</span>
           </div>
-        </div>
-
-        {/* Status toggle placeholder */}
-        <div className="mt-4 rounded-md border border-dashed p-3">
-          <p className="text-xs text-muted-foreground italic">
-            Toggle status (Aktif/Nonaktif) — akan tersedia di Task 2
-          </p>
         </div>
 
         <Separator className="my-4" />

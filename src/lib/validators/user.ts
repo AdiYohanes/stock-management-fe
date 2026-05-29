@@ -47,3 +47,47 @@ export const createUserSchema = z.object({
 });
 
 export type CreateUserFormValues = z.infer<typeof createUserSchema>;
+
+/**
+ * Zod schema for updating an existing user.
+ * Password is optional — only validated if provided.
+ * Email is excluded (read-only on edit form).
+ */
+export const updateUserSchema = z.object({
+  name: z
+    .string()
+    .min(1, { message: "Nama wajib diisi" })
+    .max(100, { message: "Nama maksimal 100 karakter" }),
+  role: z.enum(USER_ROLES, {
+    errorMap: () => ({ message: "Role wajib dipilih" }),
+  }),
+  status: z.enum(USER_STATUSES, {
+    errorMap: () => ({ message: "Status wajib dipilih" }),
+  }),
+  newPassword: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (!val || val.length === 0) return true;
+        return val.length >= 8;
+      },
+      { message: "Kata sandi baru minimal 8 karakter" },
+    )
+    .refine(
+      (val) => {
+        if (!val || val.length === 0) return true;
+        return /[A-Z]/.test(val);
+      },
+      { message: "Kata sandi baru harus mengandung minimal 1 huruf besar" },
+    )
+    .refine(
+      (val) => {
+        if (!val || val.length === 0) return true;
+        return /[0-9]/.test(val);
+      },
+      { message: "Kata sandi baru harus mengandung minimal 1 angka" },
+    ),
+});
+
+export type UpdateUserFormValues = z.infer<typeof updateUserSchema>;

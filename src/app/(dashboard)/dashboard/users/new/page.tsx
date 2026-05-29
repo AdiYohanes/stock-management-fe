@@ -62,6 +62,7 @@ export default function NewUserPage() {
     },
   });
 
+  // TODO: Replace with backend API endpoint — POST /api/v1/users (with password hashing server-side)
   const onSubmit = async (data: CreateUserFormValues) => {
     setIsSubmitting(true);
 
