@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, Loader2, UserPlus } from "lucide-react";
@@ -12,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { MOCK_USERS } from "@/lib/constants/mock-users";
+import { useUserStore } from "@/stores/user-store";
 import {
   createUserSchema,
   USER_ROLES,
@@ -36,6 +37,9 @@ const STATUS_LABELS: Record<(typeof USER_STATUSES)[number], string> = {
 };
 
 export default function NewUserPage() {
+  const router = useRouter();
+  const addUser = useUserStore((s) => s.addUser);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -43,6 +47,7 @@ export default function NewUserPage() {
     register,
     handleSubmit,
     setError,
+    reset,
     formState: { errors, isValid },
   } = useForm<CreateUserFormValues>({
     resolver: zodResolver(createUserSchema),
@@ -57,35 +62,28 @@ export default function NewUserPage() {
     },
   });
 
-  /**
-   * Mock unique email validation against existing users.
-   * Returns true if email is already taken.
-   */
-  const isEmailTaken = (email: string): boolean => {
-    return MOCK_USERS.some(
-      (user) => user.email.toLowerCase() === email.toLowerCase(),
-    );
-  };
-
   const onSubmit = async (data: CreateUserFormValues) => {
-    // Check email uniqueness against mock data
-    if (isEmailTaken(data.email)) {
+    setIsSubmitting(true);
+
+    // Simulate 300ms loading delay for UX feedback
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // Add user to store — returns error message if duplicate email
+    const error = addUser(data);
+
+    if (error) {
       setError("email", {
         type: "manual",
-        message: "Email sudah terdaftar di sistem",
+        message: error,
       });
+      setIsSubmitting(false);
       return;
     }
 
-    setIsSubmitting(true);
-
-    // Simulate 500ms loading delay for UX feedback
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
     setIsSubmitting(false);
-    toast.success(
-      "Pengguna berhasil ditambahkan! (Mock submit, belum ada backend)",
-    );
+    toast.success("Pengguna berhasil ditambahkan!");
+    reset();
+    router.push("/dashboard/users");
   };
 
   return (
@@ -264,6 +262,13 @@ export default function NewUserPage() {
           <Button type="submit" disabled={!isValid || isSubmitting}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Simpan
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => router.push("/dashboard/users")}
+          >
+            Batal
           </Button>
         </div>
       </form>
